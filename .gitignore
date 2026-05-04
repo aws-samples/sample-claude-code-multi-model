@@ -1,5 +1,6 @@
 .litellm.pid
 .litellm.log
+.mantle-token
 __pycache__/
 *.pyc
 .env

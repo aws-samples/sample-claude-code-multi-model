@@ -2,10 +2,15 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# setup-proxy.sh — Install and start the LiteLLM proxy for Bedrock models
+# setup-proxy.sh — Install and start the LiteLLM proxy for Bedrock Mantle
 #
 # This proxy translates the Anthropic Messages API (Claude Code) to the
-# OpenAI Chat Completions API (Bedrock third-party models).
+# OpenAI Chat Completions API (Bedrock Mantle — all 38 third-party models).
+#
+# Backend: bedrock-mantle.us-east-1.api.aws (NOT bedrock-runtime)
+# Auth: Bearer token generated from IAM credentials (12h validity)
+#
+# Anthropic models (Claude) do NOT need this proxy — use CLAUDE_CODE_USE_BEDROCK=1 directly.
 #
 # Prerequisites:
 #   - Python 3.9+
@@ -16,6 +21,7 @@ set -euo pipefail
 #   ./scripts/setup-proxy.sh              # install + start on port 4000
 #   ./scripts/setup-proxy.sh --port 8080  # custom port
 #   ./scripts/setup-proxy.sh --stop       # stop running proxy
+#   ./scripts/setup-proxy.sh --refresh    # refresh Mantle token (no restart)
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -23,14 +29,17 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$PROJECT_DIR/config/litellm-config.yaml"
 DEFAULT_PORT=4000
 PID_FILE="$PROJECT_DIR/.litellm.pid"
+TOKEN_FILE="$PROJECT_DIR/.mantle-token"
+MANTLE_REGION="us-east-1"
 
 usage() {
-    echo "Usage: $0 [--port PORT] [--stop] [--status]"
+    echo "Usage: $0 [--port PORT] [--stop] [--status] [--refresh]"
     echo ""
     echo "Options:"
     echo "  --port PORT   Port to run proxy on (default: $DEFAULT_PORT)"
     echo "  --stop        Stop running proxy"
     echo "  --status      Check if proxy is running"
+    echo "  --refresh     Refresh Mantle bearer token without restarting"
     exit 1
 }
 
@@ -39,9 +48,10 @@ ACTION="start"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --port)   PORT="$2"; shift 2 ;;
-        --stop)   ACTION="stop"; shift ;;
-        --status) ACTION="status"; shift ;;
+        --port)    PORT="$2"; shift 2 ;;
+        --stop)    ACTION="stop"; shift ;;
+        --status)  ACTION="status"; shift ;;
+        --refresh) ACTION="refresh"; shift ;;
         -h|--help) usage ;;
         *) echo "[error] Unknown option: $1"; usage ;;
     esac
@@ -70,16 +80,55 @@ check_status() {
     else
         echo "[stopped] No proxy running"
     fi
+    if [[ -f "$TOKEN_FILE" ]]; then
+        local age_sec=$(( $(date +%s) - $(stat -f%m "$TOKEN_FILE" 2>/dev/null || stat -c%Y "$TOKEN_FILE" 2>/dev/null) ))
+        local age_hr=$(( age_sec / 3600 ))
+        echo "[token] Age: ${age_hr}h (valid for 12h, refresh with --refresh)"
+    else
+        echo "[token] No token file"
+    fi
+}
+
+generate_token() {
+    echo "[token] Generating Mantle bearer token for $MANTLE_REGION..."
+
+    if ! python3 -c "import aws_bedrock_token_generator" 2>/dev/null; then
+        echo "[install] Installing aws-bedrock-token-generator..."
+        python3 -m pip install aws-bedrock-token-generator --quiet
+    fi
+
+    local token
+    token=$(AWS_REGION="$MANTLE_REGION" python3 -c "
+import os
+os.environ['AWS_REGION'] = '${MANTLE_REGION}'
+from aws_bedrock_token_generator import provide_token
+print(provide_token(region='${MANTLE_REGION}'))
+")
+
+    if [[ -z "$token" ]]; then
+        echo "[error] Failed to generate Mantle token. Check AWS credentials."
+        exit 1
+    fi
+
+    export MANTLE_API_KEY="$token"
+    echo "$token" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
+    echo "[token] Bearer token generated (valid 12h)"
+}
+
+refresh_token() {
+    generate_token
+    echo "[done] Token refreshed. Proxy will use new token on next request."
+    echo "       If the proxy is running, restart it: $0 --stop && $0"
 }
 
 start_proxy() {
-    # Check prerequisites
     if ! command -v python3 &>/dev/null; then
         echo "[error] Python 3 is required. Install it first."
         exit 1
     fi
 
-    # Check AWS credentials — try AWS CLI first, fall back to boto3 (instance profile)
+    # Check AWS credentials
     if ! aws sts get-caller-identity &>/dev/null 2>&1; then
         if ! python3 -c "import boto3; boto3.client('sts').get_caller_identity()" &>/dev/null 2>&1; then
             echo "[error] AWS credentials not configured."
@@ -95,14 +144,20 @@ start_proxy() {
         python3 -m pip install "litellm[proxy]" --quiet
     fi
 
+    # Generate Mantle bearer token
+    generate_token
+
     # Stop existing proxy if running
     stop_proxy 2>/dev/null
 
     echo "[start] LiteLLM proxy on port $PORT"
     echo "[config] $CONFIG_FILE"
+    echo "[backend] Bedrock Mantle (bedrock-mantle.$MANTLE_REGION.api.aws)"
     echo ""
 
-    # Start in background
+    # Start in background with Mantle token + routing fix exported
+    export MANTLE_API_KEY
+    export LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
     nohup litellm --config "$CONFIG_FILE" --port "$PORT" > "$PROJECT_DIR/.litellm.log" 2>&1 &
     echo $! > "$PID_FILE"
 
@@ -115,13 +170,24 @@ start_proxy() {
             echo "[pid] $(cat "$PID_FILE")"
             echo "[log] $PROJECT_DIR/.litellm.log"
             echo ""
-            echo "Available models:"
+            echo "Available models (38 via Mantle):"
             curl -s "http://localhost:${PORT}/v1/models" | python3 -c "
 import json, sys
 data = json.load(sys.stdin).get('data', [])
-for m in data:
+for m in sorted(data, key=lambda x: x['id']):
     print(f'  - {m[\"id\"]}')
+print(f'\nTotal: {len(data)} models')
 " 2>/dev/null || echo "  (could not list models)"
+            echo ""
+            echo "Usage:"
+            echo "  ANTHROPIC_BASE_URL=http://localhost:${PORT} \\"
+            echo "  ANTHROPIC_API_KEY=bedrock-proxy \\"
+            echo "  ANTHROPIC_MODEL=qwen-coder-next \\"
+            echo "  DISABLE_PROMPT_CACHING=1 \\"
+            echo "  CLAUDE_CODE_USE_BEDROCK=0 \\"
+            echo "  claude"
+            echo ""
+            echo "  Or use the picker: ./scripts/claude-model.sh"
             return 0
         fi
         echo -n "."
@@ -135,7 +201,8 @@ for m in data:
 }
 
 case $ACTION in
-    start)  start_proxy ;;
-    stop)   stop_proxy ;;
-    status) check_status ;;
+    start)   start_proxy ;;
+    stop)    stop_proxy ;;
+    status)  check_status ;;
+    refresh) refresh_token ;;
 esac

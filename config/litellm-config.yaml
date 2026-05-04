@@ -1,127 +1,259 @@
-# LiteLLM Proxy Config — Multi-Model Support for Claude Code
+# LiteLLM Proxy Config — Multi-Model Support for Claude Code via Bedrock Mantle
 #
-# This proxy translates the Anthropic Messages API (Claude Code) to the
-# OpenAI Chat Completions API used by third-party models on Bedrock and
-# self-hosted models via Ollama.
+# Backend: Bedrock Mantle (bedrock-mantle.{region}.api.aws) — OpenAI Chat Completions API
+# All 38 Mantle models support tools + streaming natively.
 #
-# Anthropic models (Claude) do NOT need this proxy — use CLAUDE_CODE_USE_BEDROCK=1 directly.
+# Auth: Bearer token from aws-bedrock-token-generator (MANTLE_API_KEY env var)
+# Base URL: hardcoded to us-east-1 (only available Mantle region)
+# The setup-proxy.sh script handles token generation automatically.
+#
+# Architecture:
+#   Claude Code (Anthropic Messages API)
+#     -> LiteLLM Proxy (localhost:4000, translates Anthropic -> OpenAI format)
+#       -> Bedrock Mantle (Chat Completions API, bearer token auth)
+#         -> Any of 39 models from 12+ providers
 #
 # Usage: litellm --config config/litellm-config.yaml --port 4000
 
 model_list:
-  # ── Qwen (Coding) ──────────────────────────────────────────────
+  # ── Qwen — Coding ──────────────────────────────────────────────
   - model_name: qwen-coder-next
     litellm_params:
-      model: bedrock/qwen.qwen3-coder-next
-      aws_region_name: us-east-1
+      model: openai/qwen.qwen3-coder-next
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
-  # qwen-coder-480b is not yet available in Bedrock — omitted until GA
-  # - model_name: qwen-coder-480b
+  - model_name: qwen-coder-480b
+    litellm_params:
+      model: openai/qwen.qwen3-coder-480b-a35b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   - model_name: qwen-coder-30b
     litellm_params:
-      model: bedrock/qwen.qwen3-coder-30b-a3b-v1:0
-      aws_region_name: us-east-1
+      model: openai/qwen.qwen3-coder-30b-a3b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
-  # ── Qwen (General / Vision) ────────────────────────────────────
-  # qwen-235b is not yet available in Bedrock — omitted until GA
-  # - model_name: qwen-235b
+  # ── Qwen — General / Vision ────────────────────────────────────
+  - model_name: qwen-235b
+    litellm_params:
+      model: openai/qwen.qwen3-235b-a22b-2507
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   - model_name: qwen-32b
     litellm_params:
-      model: bedrock/qwen.qwen3-32b-v1:0
-      aws_region_name: us-east-1
+      model: openai/qwen.qwen3-32b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   - model_name: qwen-vl-235b
     litellm_params:
-      model: bedrock/qwen.qwen3-vl-235b-a22b
-      aws_region_name: us-east-1
+      model: openai/qwen.qwen3-vl-235b-a22b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   - model_name: qwen-next-80b
     litellm_params:
-      model: bedrock/qwen.qwen3-next-80b-a3b
-      aws_region_name: us-east-1
+      model: openai/qwen.qwen3-next-80b-a3b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   # ── DeepSeek ────────────────────────────────────────────────────
   - model_name: deepseek-v3
     litellm_params:
-      model: bedrock/deepseek.v3.2
-      aws_region_name: us-east-1
+      model: openai/deepseek.v3.2
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
-  - model_name: deepseek-r1
+  - model_name: deepseek-v3.1
     litellm_params:
-      model: bedrock/us.deepseek.r1-v1:0
-      aws_region_name: us-east-1
-
-  # ── Meta Llama ──────────────────────────────────────────────────
-  - model_name: llama4-maverick
-    litellm_params:
-      model: bedrock/us.meta.llama4-maverick-17b-instruct-v1:0
-      aws_region_name: us-east-1
-    model_info:
-      max_output_tokens: 8192
-      supports_function_calling: false
-
-  - model_name: llama4-scout
-    litellm_params:
-      model: bedrock/us.meta.llama4-scout-17b-instruct-v1:0
-      aws_region_name: us-east-1
-    model_info:
-      max_output_tokens: 8192
-      supports_function_calling: false
-
-  - model_name: llama3-70b
-    litellm_params:
-      model: bedrock/us.meta.llama3-3-70b-instruct-v1:0
-      aws_region_name: us-east-1
-    model_info:
-      max_output_tokens: 8192
-      supports_function_calling: false
+      model: openai/deepseek.v3.1
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   # ── Mistral AI ──────────────────────────────────────────────────
   - model_name: devstral-123b
     litellm_params:
-      model: bedrock/mistral.devstral-2-123b
-      aws_region_name: us-east-1
+      model: openai/mistral.devstral-2-123b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   - model_name: mistral-large-3
     litellm_params:
-      model: bedrock/mistral.mistral-large-3-675b-instruct
-      aws_region_name: us-east-1
+      model: openai/mistral.mistral-large-3-675b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
-  # ── Amazon Nova ─────────────────────────────────────────────────
-  - model_name: nova-pro
+  - model_name: magistral-small
     litellm_params:
-      model: bedrock/us.amazon.nova-pro-v1:0
-      aws_region_name: us-east-1
-    model_info:
-      max_output_tokens: 5120
-      supports_function_calling: false
+      model: openai/mistral.magistral-small-2509
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
-  - model_name: nova-lite
+  - model_name: ministral-14b
     litellm_params:
-      model: bedrock/us.amazon.nova-lite-v1:0
-      aws_region_name: us-east-1
-    model_info:
-      max_output_tokens: 5120
-      supports_function_calling: false
+      model: openai/mistral.ministral-3-14b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: ministral-8b
+    litellm_params:
+      model: openai/mistral.ministral-3-8b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: ministral-3b
+    litellm_params:
+      model: openai/mistral.ministral-3-3b-instruct
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: voxtral-small-24b
+    litellm_params:
+      model: openai/mistral.voxtral-small-24b-2507
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: voxtral-mini-3b
+    litellm_params:
+      model: openai/mistral.voxtral-mini-3b-2507
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   # ── Moonshot AI (Kimi) ──────────────────────────────────────────
   - model_name: kimi-k2.5
     litellm_params:
-      model: bedrock/moonshotai.kimi-k2.5
-      aws_region_name: us-east-1
+      model: openai/moonshotai.kimi-k2.5
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   - model_name: kimi-k2-thinking
     litellm_params:
-      model: bedrock/moonshot.kimi-k2-thinking
-      aws_region_name: us-east-1
+      model: openai/moonshotai.kimi-k2-thinking
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   # ── MiniMax ─────────────────────────────────────────────────────
+  - model_name: minimax-m2
+    litellm_params:
+      model: openai/minimax.minimax-m2
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
   - model_name: minimax-m2.1
     litellm_params:
-      model: bedrock/minimax.minimax-m2.1
-      aws_region_name: us-east-1
+      model: openai/minimax.minimax-m2.1
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: minimax-m2.5
+    litellm_params:
+      model: openai/minimax.minimax-m2.5
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  # ── NVIDIA Nemotron ─────────────────────────────────────────────
+  - model_name: nemotron-super-120b
+    litellm_params:
+      model: openai/nvidia.nemotron-super-3-120b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: nemotron-nano-30b
+    litellm_params:
+      model: openai/nvidia.nemotron-nano-3-30b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: nemotron-nano-12b
+    litellm_params:
+      model: openai/nvidia.nemotron-nano-12b-v2
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: nemotron-nano-9b
+    litellm_params:
+      model: openai/nvidia.nemotron-nano-9b-v2
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  # ── OpenAI (GPT OSS on Bedrock) ────────────────────────────────
+  - model_name: gpt-oss-120b
+    litellm_params:
+      model: openai/openai.gpt-oss-120b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: gpt-oss-20b
+    litellm_params:
+      model: openai/openai.gpt-oss-20b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: gpt-oss-safeguard-120b
+    litellm_params:
+      model: openai/openai.gpt-oss-safeguard-120b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: gpt-oss-safeguard-20b
+    litellm_params:
+      model: openai/openai.gpt-oss-safeguard-20b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  # ── Z.AI (GLM) ─────────────────────────────────────────────────
+  - model_name: glm-5
+    litellm_params:
+      model: openai/zai.glm-5
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: glm-4.7
+    litellm_params:
+      model: openai/zai.glm-4.7
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: glm-4.7-flash
+    litellm_params:
+      model: openai/zai.glm-4.7-flash
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: glm-4.6
+    litellm_params:
+      model: openai/zai.glm-4.6
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  # ── Google (Gemma) ──────────────────────────────────────────────
+  - model_name: gemma-3-27b
+    litellm_params:
+      model: openai/google.gemma-3-27b-it
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: gemma-3-12b
+    litellm_params:
+      model: openai/google.gemma-3-12b-it
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  - model_name: gemma-3-4b
+    litellm_params:
+      model: openai/google.gemma-3-4b-it
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
+
+  # ── Writer (Palmyra) ───────────────────────────────────────────
+  - model_name: palmyra-vision-7b
+    litellm_params:
+      model: openai/writer.palmyra-vision-7b
+      api_base: https://bedrock-mantle.us-east-1.api.aws/v1
+      api_key: os.environ/MANTLE_API_KEY
 
   # ── Self-Hosted (Ollama via SSH tunnel) ─────────────────────────
   # Uncomment these if you have an Ollama server running via SSH tunnel.
@@ -143,4 +275,6 @@ litellm_settings:
   drop_params: true          # drop unsupported params instead of erroring
   num_retries: 2
   request_timeout: 300       # 5 min for large models
-  modify_params: true        # allow per-model param overrides to cap max_tokens
+
+environment_variables:
+  LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES: "true"
