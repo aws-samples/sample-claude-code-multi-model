@@ -1,5 +1,13 @@
 # Claude Code Multi-Model on Amazon Bedrock
 
+[![License: MIT-0](https://img.shields.io/badge/License-MIT--0-yellow.svg)](LICENSE)
+[![Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-Mantle-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
+[![Models: 43](https://img.shields.io/badge/Models-43%20from%2012%20providers-orange)](./)
+
+> **This is sample code intended for demonstration and learning purposes only.**
+> It is not meant for production use. Review and harden all scripts, configurations,
+> and IAM permissions before using in any production or sensitive environment.
+
 Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with **any foundation model on Amazon Bedrock** — not just Anthropic models. Switch between 43 models from 12 providers with a single command.
 
 ## Architecture
@@ -183,15 +191,15 @@ alias cc-devstral="$CC_PROXY claude --settings ~/claude-code-multi-model-bedrock
 alias cc-kimi="$CC_PROXY claude --settings ~/claude-code-multi-model-bedrock/config/claude-proxy-settings.json --model kimi-k2.5"
 ```
 
-## Key Files
+## What's Inside
 
-| File | Purpose |
-|------|---------|
-| `config/litellm-config.yaml` | LiteLLM proxy config — all 38 Mantle models |
-| `config/claude-proxy-settings.json` | Claude Code settings override (disables native Bedrock mode) |
-| `scripts/setup-proxy.sh` | One-command proxy setup (token gen + install + start) |
-| `scripts/claude-model.sh` | Model picker / launcher (43 models) |
-| `scripts/mantle-token.sh` | Standalone Mantle bearer token generator |
+| File | What it does |
+| --- | --- |
+| [scripts/setup-proxy.sh](scripts/setup-proxy.sh) | One-command proxy setup: generates Mantle token, installs LiteLLM, starts proxy |
+| [scripts/claude-model.sh](scripts/claude-model.sh) | Interactive model picker / launcher for all 43 models |
+| [scripts/mantle-token.sh](scripts/mantle-token.sh) | Standalone Mantle bearer token generator (12h validity) |
+| [config/litellm-config.yaml](config/litellm-config.yaml) | LiteLLM proxy config with all 38 Mantle models |
+| [config/claude-proxy-settings.json](config/claude-proxy-settings.json) | Claude Code settings override (disables native Bedrock mode) |
 
 ## How It Works
 
@@ -224,4 +232,4 @@ alias cc-kimi="$CC_PROXY claude --settings ~/claude-code-multi-model-bedrock/con
 
 ## License
 
-MIT
+This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
