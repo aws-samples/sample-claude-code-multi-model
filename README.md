@@ -230,6 +230,10 @@ alias cc-kimi="$CC_PROXY claude --settings ~/claude-code-multi-model-bedrock/con
 | `Token expired` | Run `./scripts/setup-proxy.sh --refresh` then restart proxy |
 | Small model fails with Claude Code | Claude Code's system prompt is ~100K chars — models with <128K context may fail |
 
+## See Also
+
+- **[Claude Code on Amazon EC2](https://github.com/shekharprateek/claude-code-on-amazon-ec2)** — Run Claude Code backed by a self-hosted open-source model (Ollama + Qwen 3.5) on an EC2 GPU instance. Fixed hourly cost, data stays in your VPC.
+
 ## License
 
 This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
