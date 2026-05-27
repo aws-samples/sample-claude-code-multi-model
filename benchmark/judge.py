@@ -52,16 +52,23 @@ Return ONLY valid JSON:
 """
 
 
-def judge_output(client, task_name: str, prompt: str, output: str) -> dict:
-    """Score a single model output."""
+def judge_output(client, task_name: str, prompt: str, code_files: dict, passed: bool) -> dict:
+    """Score a single model output based on the actual generated code."""
+    code_section = ""
+    for filename, content in code_files.items():
+        code_section += f"\n### {filename}\n```python\n{content[:4000]}\n```\n"
+
     message = f"""## Task
 {task_name}
 
 ## Original Prompt
 {prompt}
 
-## Model Output (code changes and reasoning)
-{output[:8000]}
+## Deterministic Test Result
+{"PASSED all tests" if passed else "FAILED some tests"}
+
+## Actual Generated Code Files
+{code_section}
 
 {RUBRIC}"""
 
@@ -99,27 +106,43 @@ def main():
 
     client = boto3.client("bedrock-runtime", region_name=REGION)
 
-    # Read results to know which model/task combos to judge
     judge_results = []
     with open(results_csv) as f:
         reader = csv.DictReader(f)
         for row in reader:
             model = row["model"]
             task = row["task"]
-            output_file = Path(outputs_dir) / model / f"{task}.txt"
+            passed = row["pass"] == "1"
+
+            # Look for actual code files first (new format)
+            code_dir = Path(outputs_dir) / model / f"{task}_code"
             prompt_file = tasks_dir / task / "prompt.txt"
 
-            if not output_file.exists():
-                print(f"  [skip] {model}/{task} — no output file")
-                continue
+            if not code_dir.exists():
+                # Fall back to old format (claude output text)
+                old_output = Path(outputs_dir) / model / f"{task}.txt"
+                if not old_output.exists():
+                    old_output = Path(outputs_dir) / model / f"{task}_claude.txt"
+                if not old_output.exists():
+                    print(f"  [skip] {model}/{task} — no output files")
+                    continue
+                code_files = {"claude_output.txt": old_output.read_text()[:8000]}
+            else:
+                # Read all .py files from the code directory
+                code_files = {}
+                for py_file in sorted(code_dir.glob("*.py")):
+                    code_files[py_file.name] = py_file.read_text()
+                if not code_files:
+                    print(f"  [skip] {model}/{task} — no code files in output")
+                    continue
 
             prompt = prompt_file.read_text() if prompt_file.exists() else task
-            output = output_file.read_text()
 
             print(f"  [judge] {model}/{task} ... ", end="", flush=True)
-            scores = judge_output(client, task, prompt, output)
+            scores = judge_output(client, task, prompt, code_files, passed)
             scores["model"] = model
             scores["task"] = task
+            scores["passed"] = "1" if passed else "0"
             judge_results.append(scores)
 
             avg = sum(scores.get(k, 0) for k in ["correctness", "quality", "completeness", "efficiency"]) / 4
@@ -129,7 +152,7 @@ def main():
     judge_csv = results_csv.replace(".csv", "_judge.csv")
     if judge_results:
         with open(judge_csv, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["model", "task", "correctness", "quality", "completeness", "efficiency", "notes"])
+            writer = csv.DictWriter(f, fieldnames=["model", "task", "passed", "correctness", "quality", "completeness", "efficiency", "notes"])
             writer.writeheader()
             writer.writerows(judge_results)
         print(f"\n  Judge scores saved to: {judge_csv}")

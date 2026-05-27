@@ -194,10 +194,17 @@ assert r2.status_code == 422
         echo "FAIL (${latency}s)"
     fi
 
-    # Save output for judge
-    if [[ "$RUN_JUDGE" == "true" && -f "$work_dir/.claude_output" ]]; then
+    # Save output for judge — both Claude output AND generated code files
+    if [[ "$RUN_JUDGE" == "true" ]]; then
         mkdir -p "$RESULTS_DIR/outputs/$model"
-        cp "$work_dir/.claude_output" "$RESULTS_DIR/outputs/$model/$task.txt"
+        # Save Claude's text output
+        if [[ -f "$work_dir/.claude_output" ]]; then
+            cp "$work_dir/.claude_output" "$RESULTS_DIR/outputs/$model/${task}_claude.txt"
+        fi
+        # Save all code files (the actual generated/modified code)
+        local code_dir="$RESULTS_DIR/outputs/$model/${task}_code"
+        mkdir -p "$code_dir"
+        find "$work_dir" -maxdepth 1 -name "*.py" -exec cp {} "$code_dir/" \;
     fi
 
     # Cleanup
