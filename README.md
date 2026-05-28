@@ -232,7 +232,19 @@ alias cc-kimi="$CC_PROXY claude --settings ~/claude-code-multi-model-bedrock/con
 
 ## Benchmark Results
 
-We evaluated 5 models across 5 coding tasks to answer: **can cheaper models match Claude Sonnet on real coding work?**
+We evaluated 5 models across 5 real-world coding tasks to answer: **can cheaper models match Claude Sonnet on real coding work?**
+
+### Tasks
+
+Each task gives the model a working directory with source files, a natural-language prompt, and a deterministic verifier. The model uses Claude Code with full tool access (Edit, Write, Read, Bash) to solve it.
+
+| # | Task | Prompt | What It Tests | Verifier |
+|---|------|--------|---------------|----------|
+| 1 | **Bug Fix** | Fix off-by-one error in `binary_search()` that causes IndexError on empty arrays | Debugging: read code, identify root cause, apply minimal fix | pytest — 8 test cases covering empty, single, found, not-found, duplicates |
+| 2 | **Write Tests** | Write comprehensive unit tests for a `ShoppingCart` class (add/remove items, discounts, totals) | Test generation: understand API surface, cover edge cases, write runnable code | pytest — all generated tests must pass against the implementation |
+| 3 | **Add Feature** | Add `POST /items` endpoint to a FastAPI app with validation (name required, price > 0, auto-ID, return 201) | Feature work: modify existing code, use framework correctly, handle validation | HTTP assertions — 201 on valid input, 422 on invalid, correct response body |
+| 4 | **Refactor** | Break a 90-line monolithic CSV processor into 4+ functions, each ≤30 lines, preserving the public API | Refactoring: decompose safely, maintain behavior, improve structure | pytest + `grep` — existing tests pass AND function count ≥ 4 |
+| 5 | **Fix Imports** | Resolve circular import between `models.py` ↔ `services.py` so `python main.py` runs | Architecture: understand dependency graph, restructure without breaking contracts | pytest — 5 tests covering import, behavior, and validation |
 
 ### Pass/Fail + Quality Scores
 
