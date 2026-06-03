@@ -1,5 +1,20 @@
-*Issue #, if available:*
+## Description
 
-*Description of changes:*
+Brief description of what this PR changes and why.
 
-By submitting this pull request, I confirm that you can use, modify, copy, and redistribute this contribution, under the terms of your choice.
+Fixes # (issue number, if applicable)
+
+## Type of Change
+
+- [ ] Bug fix
+- [ ] New feature / enhancement
+- [ ] Documentation update
+- [ ] Refactor (no functional change)
+
+## Checklist
+
+- [ ] I have read [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [ ] Shell scripts pass `bash -n` syntax check
+- [ ] Python files pass `python3 -m py_compile`
+- [ ] I have updated documentation if needed
+- [ ] I have not included credentials, keys, or sensitive data

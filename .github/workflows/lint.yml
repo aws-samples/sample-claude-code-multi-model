@@ -1,0 +1,39 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shell-lint:
+    name: Shell script syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell scripts
+        run: |
+          find . -name "*.sh" -not -path "./.git/*" | while read f; do
+            echo "Checking $f"
+            bash -n "$f"
+          done
+
+  python-lint:
+    name: Python syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python files
+        run: |
+          find . -name "*.py" -not -path "./.git/*" | while read f; do
+            echo "Checking $f"
+            python3 -m py_compile "$f"
+          done
+      - name: Run Bandit security scan
+        run: |
+          pip install bandit
+          bandit -r . -f txt

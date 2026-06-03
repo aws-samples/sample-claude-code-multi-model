@@ -24,3 +24,4 @@ secrets/
 security-review-findings.xlsx
 .litellm.pid
 .mantle-token
+.DS_Store
