@@ -68,12 +68,11 @@ on workloads that look like yours before routing real traffic.
               │    (Anthropic Messages API)     │
               └────────┬───────────────┬────────┘
                        │               │
-                       │               │
-              ┌────────▼─────┐  ┌──────▼─────────┐
-              │    Native    │  │ LiteLLM Proxy  │
-              │   (no proxy) │  │  Anthropic ↔   │
-              │              │  │  OpenAI format │
-              └────────┬─────┘  └──────┬─────────┘
+                       │      ┌────────▼─────────┐
+                       │      │  LiteLLM Proxy   │
+                       │      │   Anthropic ↔    │
+                       │      │   OpenAI format  │
+                       │      └────────┬─────────┘
                        │               │
               ┌────────▼─────┐  ┌──────▼─────────┐
               │              │  │                │
@@ -90,10 +89,10 @@ on workloads that look like yours before routing real traffic.
               └──────────────┘  └────────────────┘
 ```
 
-Anthropic models go **direct** (no proxy) to Bedrock. Third-party models go
-through the **LiteLLM proxy** to Bedrock — the proxy translates the Anthropic
-Messages format Claude Code speaks into the OpenAI Chat Completions format
-those models expose.
+Anthropic models go **direct** to Bedrock — no proxy needed since both speak
+the Anthropic Messages format. Third-party models go through the **LiteLLM
+proxy**, which translates the Anthropic Messages format Claude Code speaks
+into the OpenAI Chat Completions format those models expose on Bedrock.
 
 ### Self-hosted path
 
