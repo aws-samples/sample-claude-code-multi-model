@@ -137,6 +137,14 @@ the cost. Prices are on-demand Standard-tier rates for US East from the
 time of writing. Full method, caveats, and reproduce steps in
 [bedrock/README.md](bedrock/README.md#benchmark-humaneval).
 
+> **These numbers are NOT comparable to [SWE-bench](https://www.swebench.com/).**
+> HumanEval measures whether a model can write a single small Python function
+> from a docstring; SWE-bench measures whether an agent can resolve a real
+> multi-file GitHub issue against a large codebase. Frontier models score 95%+
+> on HumanEval but only 40–80% on SWE-bench. Use HumanEval as a quick quality
+> signal for picking a routing tier, and SWE-bench (or your own production
+> traffic) for evaluating end-to-end agent capability.
+
 ## Prerequisites
 
 - An **AWS account** with [Amazon Bedrock model access](https://console.aws.amazon.com/bedrock/home#/modelaccess) enabled for the models you want to use
