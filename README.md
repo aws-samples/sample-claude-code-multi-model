@@ -8,55 +8,13 @@
 > It is not meant for production use. Review and harden all scripts, configurations,
 > and IAM permissions before using in any production or sensitive environment.
 
-## The Problem: AI Coding Agents Are Expensive at Scale
-
-Enterprise spending on generative AI hit **$13.8 billion in 2024** — a 6x increase from $2.3B the year before ([Menlo Ventures](https://menlovc.com/2024-the-state-of-generative-ai-in-the-enterprise/)). A significant portion goes to LLM inference costs powering coding assistants, chat agents, and autonomous workflows.
-
-The economics are stark:
-
-- **Frontier models cost 10-100x more** than budget alternatives ($3-15/M tokens vs $0.15-0.60/M tokens)
-- **AI coding agents are token-hungry** — a single complex task session can consume 100K-500K+ tokens with tool use, multi-file edits, and iterative reasoning
-- **Not every task needs a frontier model** — bug fixes, test generation, and boilerplate don't require the same reasoning power as architecture decisions
-- **44% of enterprises cite price as a motivation for switching LLMs** ([Menlo Ventures](https://menlovc.com/2024-the-state-of-generative-ai-in-the-enterprise/))
-
-Research confirms that intelligent model routing dramatically reduces costs without sacrificing quality:
-
-- [FrugalGPT](https://arxiv.org/abs/2305.05176) (Stanford) — matches GPT-4 performance with up to **98% cost reduction** through LLM cascades
-- [RouteLLM](https://arxiv.org/abs/2406.18665) (UC Berkeley) — reduces costs by **over 2x** without compromising response quality
-- [Hybrid LLM](https://arxiv.org/abs/2404.14618) (ICLR 2024) — **40% fewer calls** to the expensive model with no quality drop
-
-## This Solution: Claude Code with Any Model
-
-Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with **any foundation model** — not just Anthropic models. Route routine tasks to models that cost 5-20x less, reserve frontier models for complex reasoning. Choose your deployment path:
+Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with **any
+foundation model** — not just Anthropic models. Two deployment paths:
 
 | Path | Models | Cost Model | Best For |
 |------|--------|------------|----------|
-| [**Bedrock (Mantle)**](bedrock/) | 43 models from 12 providers | Pay-per-token | Teams wanting model variety + zero infrastructure |
-| [**Self-Hosted (EC2)**](self-hosted/) | Any Ollama/vLLM model | Fixed hourly GPU cost | Data sovereignty, air-gapped environments, unlimited tokens |
-
-```
-Task Complexity        Recommended Model         Cost vs Sonnet
-────────────────       ─────────────────         ──────────────
-Simple bug fixes       Qwen Coder 30B            20x cheaper
-Test generation        Kimi K2.5                  5x cheaper
-Feature additions      Qwen Coder Next           10x cheaper
-Complex refactoring    Claude Sonnet             baseline
-Architecture decisions Claude Opus               frontier
-```
-
-## Benchmark Results
-
-We evaluated 5 models across 5 real-world coding tasks (bug fix, test writing, feature addition, refactoring, circular import resolution). Each model runs Claude Code with full tool access and is scored by both deterministic verifiers (pytest) and an LLM-as-judge (Claude Opus evaluating the actual generated code).
-
-| Model | Input $/M | Output $/M | Pass Rate | Quality (1-5) | Avg Latency | Cost Efficiency |
-|-------|-----------|------------|-----------|---------------|-------------|-----------------|
-| **claude-sonnet** | $3.00 | $15.00 | **100%** | **4.5** | 35s | baseline |
-| **qwen-coder-30b** | $0.15 | $0.62 | 80% | **4.2** | 129s | 20x cheaper, 93% quality |
-| **kimi-k2.5** | $0.60 | $2.50 | 80% | **4.1** | 94s | 5x cheaper, 91% quality |
-| **qwen-coder-next** | $0.30 | $1.20 | 80% | **4.0** | 140s | 10x cheaper, 89% quality |
-| **deepseek-v3** | $0.50 | $2.00 | 60% | **3.2** | 155s | 6x cheaper, 71% quality |
-
-> Full methodology, per-task breakdown, and how to run the benchmark yourself: [bedrock/README.md](bedrock/README.md#benchmark-results)
+| [**Bedrock (Mantle)**](bedrock/) | 43 models from 12 providers | Pay-per-token | Model variety, zero infrastructure |
+| [**Self-Hosted (EC2)**](self-hosted/) | Any Ollama/vLLM model | Fixed hourly GPU cost | Data sovereignty, air-gapped, unlimited tokens |
 
 ## Architecture
 
@@ -142,7 +100,7 @@ See [self-hosted/README.md](self-hosted/README.md) for instance types, GPU selec
 | **Models** | 43 from 12 providers | Any GGUF/HF model |
 | **Pricing** | Per-token ($0.15-$15/M) | Per-hour ($0.84-$4.60/hr GPU) |
 | **Setup time** | 5 minutes | 15-20 minutes |
-| **Latency** | 16-180s per task | Depends on GPU + model size |
+| **Latency** | Varies by model (a few sec to minutes/task) | Depends on GPU + model size |
 | **Data location** | AWS Bedrock service | Your VPC, your instance |
 | **Best when** | Variable workload, model variety | Fixed workload, data sovereignty |
 | **Break-even** | < ~2M tokens/hour | > ~2M tokens/hour |
@@ -161,7 +119,7 @@ claude-code-multi-model/
 │   ├── README.md              Full Bedrock setup guide + benchmark results
 │   ├── scripts/               setup-proxy.sh, claude-model.sh, mantle-token.sh
 │   ├── config/                litellm-config.yaml, claude-proxy-settings.json
-│   └── benchmark/             5-task evaluation suite + LLM-as-judge
+│   └── benchmark/             HumanEval runner + pass@1 results
 └── self-hosted/               ← EC2 self-hosted path (Ollama/vLLM)
     ├── README.md              Full EC2 setup guide
     ├── SETUP-GUIDE.md         Step-by-step GPU instance provisioning
@@ -171,9 +129,7 @@ claude-code-multi-model/
 
 ## See Also
 
-- **Anthropic's "Serving a Trillion Tokens a Month"** — our multi-model routing approach implements recommendations from references [14] and [35] of this whitepaper
-- [FrugalGPT](https://arxiv.org/abs/2305.05176) — Academic foundation for LLM cascade cost optimization
-- [RouteLLM](https://arxiv.org/abs/2406.18665) — Dynamic model selection framework
+- [HumanEval](https://github.com/openai/human-eval) — the public benchmark used above
 - [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) — Official Claude Code documentation
 
 ## License
