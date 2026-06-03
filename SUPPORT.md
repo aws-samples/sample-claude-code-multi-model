@@ -16,7 +16,7 @@ GitHub issues.
 Use the GitHub issue tracker for:
 
 - **Bug reports** — unexpected behavior or errors
-- **Setup problems** — issues with LiteLLM proxy, Mantle token generation, or model routing
+- **Setup problems** — issues with LiteLLM proxy, Bedrock token generation, or model routing
 - **Documentation gaps** — unclear or missing instructions
 
 Please include:

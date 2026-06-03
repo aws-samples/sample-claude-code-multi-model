@@ -5,9 +5,9 @@ set -euo pipefail
 # claude-model.sh — Run Claude Code with any Bedrock model
 #
 # For Anthropic models: connects directly to Bedrock (no proxy needed)
-# For third-party models: routes through LiteLLM proxy -> Bedrock Mantle
+# For third-party models: routes through LiteLLM proxy -> Amazon Bedrock
 #
-# All 38 Mantle models support tools + streaming natively.
+# All 38 models support tools + streaming natively.
 #
 # Usage:
 #   ./scripts/claude-model.sh                      # interactive: pick a model
@@ -28,7 +28,7 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 
 # ── Model Registry ────────────────────────────────────────────────
 # Format: alias|type|model_id|description
-# type: "native" = direct Bedrock, "proxy" = via LiteLLM -> Mantle
+# type: "native" = direct Bedrock, "proxy" = via LiteLLM -> Bedrock
 MODELS=(
     # ── Anthropic (native — no proxy needed) ──────────────────────
     "claude-opus|native|us.anthropic.claude-opus-4-6-v1|Claude Opus 4.6 — flagship, best reasoning"
@@ -37,22 +37,22 @@ MODELS=(
     "claude-opus-4.5|native|us.anthropic.claude-opus-4-5-20251101-v1:0|Claude Opus 4.5 — previous gen flagship"
     "claude-sonnet-4.5|native|us.anthropic.claude-sonnet-4-5-20250929-v1:0|Claude Sonnet 4.5 — previous gen balanced"
 
-    # ── Qwen — Coding (via Mantle) ────────────────────────────────
+    # ── Qwen — Coding (via Bedrock) ────────────────────────────────
     "qwen-coder-next|proxy|qwen-coder-next|Qwen3 Coder Next — latest coding model"
     "qwen-coder-480b|proxy|qwen-coder-480b|Qwen3 Coder 480B — largest coding MoE"
     "qwen-coder-30b|proxy|qwen-coder-30b|Qwen3 Coder 30B — compact coding MoE"
 
-    # ── Qwen — General / Vision (via Mantle) ──────────────────────
+    # ── Qwen — General / Vision (via Bedrock) ──────────────────────
     "qwen-235b|proxy|qwen-235b|Qwen3 235B — general purpose MoE"
     "qwen-32b|proxy|qwen-32b|Qwen3 32B — dense, hybrid thinking"
     "qwen-vl-235b|proxy|qwen-vl-235b|Qwen3 VL 235B — vision + language"
     "qwen-next-80b|proxy|qwen-next-80b|Qwen3 Next 80B — efficient MoE"
 
-    # ── DeepSeek (via Mantle) ─────────────────────────────────────
+    # ── DeepSeek (via Bedrock) ─────────────────────────────────────
     "deepseek-v3|proxy|deepseek-v3|DeepSeek V3.2 — coding + reasoning MoE"
     "deepseek-v3.1|proxy|deepseek-v3.1|DeepSeek V3.1 — previous gen"
 
-    # ── Mistral AI (via Mantle) ───────────────────────────────────
+    # ── Mistral AI (via Bedrock) ───────────────────────────────────
     "devstral-123b|proxy|devstral-123b|Devstral 2 123B — coding specialist"
     "mistral-large-3|proxy|mistral-large-3|Mistral Large 3 675B — flagship MoE"
     "magistral-small|proxy|magistral-small|Magistral Small — reasoning model"
@@ -62,39 +62,39 @@ MODELS=(
     "voxtral-small-24b|proxy|voxtral-small-24b|Voxtral Small 24B — multimodal"
     "voxtral-mini-3b|proxy|voxtral-mini-3b|Voxtral Mini 3B — tiny multimodal"
 
-    # ── Moonshot AI / Kimi (via Mantle) ───────────────────────────
+    # ── Moonshot AI / Kimi (via Bedrock) ───────────────────────────
     "kimi-k2.5|proxy|kimi-k2.5|Kimi K2.5 — coding + reasoning"
     "kimi-k2-thinking|proxy|kimi-k2-thinking|Kimi K2 Thinking — chain-of-thought"
 
-    # ── MiniMax (via Mantle) ──────────────────────────────────────
+    # ── MiniMax (via Bedrock) ──────────────────────────────────────
     "minimax-m2|proxy|minimax-m2|MiniMax M2 — general purpose"
     "minimax-m2.1|proxy|minimax-m2.1|MiniMax M2.1 — improved general"
     "minimax-m2.5|proxy|minimax-m2.5|MiniMax M2.5 — latest, 80.2% SWE-bench"
 
-    # ── NVIDIA Nemotron (via Mantle) ──────────────────────────────
+    # ── NVIDIA Nemotron (via Bedrock) ──────────────────────────────
     "nemotron-super-120b|proxy|nemotron-super-120b|Nemotron Super 120B — large reasoning"
     "nemotron-nano-30b|proxy|nemotron-nano-30b|Nemotron Nano 30B — mid-size"
     "nemotron-nano-12b|proxy|nemotron-nano-12b|Nemotron Nano 12B — compact"
     "nemotron-nano-9b|proxy|nemotron-nano-9b|Nemotron Nano 9B — smallest"
 
-    # ── OpenAI GPT OSS (via Mantle) ──────────────────────────────
+    # ── OpenAI GPT OSS (via Bedrock) ──────────────────────────────
     "gpt-oss-120b|proxy|gpt-oss-120b|GPT OSS 120B — open-source GPT"
     "gpt-oss-20b|proxy|gpt-oss-20b|GPT OSS 20B — compact open-source GPT"
     "gpt-oss-safeguard-120b|proxy|gpt-oss-safeguard-120b|GPT OSS Safeguard 120B"
     "gpt-oss-safeguard-20b|proxy|gpt-oss-safeguard-20b|GPT OSS Safeguard 20B"
 
-    # ── Z.AI / GLM (via Mantle) ──────────────────────────────────
+    # ── Z.AI / GLM (via Bedrock) ──────────────────────────────────
     "glm-5|proxy|glm-5|GLM 5 — latest general model"
     "glm-4.7|proxy|glm-4.7|GLM 4.7 — strong reasoning"
     "glm-4.7-flash|proxy|glm-4.7-flash|GLM 4.7 Flash — fast inference"
     "glm-4.6|proxy|glm-4.6|GLM 4.6 — previous gen"
 
-    # ── Google Gemma (via Mantle) ─────────────────────────────────
+    # ── Google Gemma (via Bedrock) ─────────────────────────────────
     "gemma-3-27b|proxy|gemma-3-27b|Gemma 3 27B — open model, largest"
     "gemma-3-12b|proxy|gemma-3-12b|Gemma 3 12B — open model, mid-size"
     "gemma-3-4b|proxy|gemma-3-4b|Gemma 3 4B — open model, compact"
 
-    # ── Writer / Palmyra (via Mantle) ─────────────────────────────
+    # ── Writer / Palmyra (via Bedrock) ─────────────────────────────
     "palmyra-vision-7b|proxy|palmyra-vision-7b|Palmyra Vision 7B — vision model"
 
     # ── Self-hosted via Ollama (proxy required, SSH tunnel must be active) ──
@@ -109,7 +109,7 @@ list_models() {
     echo "Available Models for Claude Code + Bedrock"
     echo "==========================================="
     echo ""
-    echo "Backend: Bedrock Mantle (Chat Completions API) — all proxy models support tools + streaming"
+    echo "Backend: Amazon Bedrock (Chat Completions API) — all proxy models support tools + streaming"
     echo ""
     printf "  %-24s %-8s %s\n" "ALIAS" "TYPE" "DESCRIPTION"
     printf "  %-24s %-8s %s\n" "-----" "----" "-----------"
@@ -121,9 +121,9 @@ list_models() {
     done
     echo ""
     echo "native = direct Bedrock (no proxy needed, Anthropic models only)"
-    echo "proxy  = via LiteLLM proxy -> Bedrock Mantle (start with: ./scripts/setup-proxy.sh)"
+    echo "proxy  = via LiteLLM proxy -> Amazon Bedrock (start with: ./scripts/setup-proxy.sh)"
     echo ""
-    echo "Total: ${#MODELS[@]} models (5 native + $((${#MODELS[@]} - 5)) via Mantle)"
+    echo "Total: ${#MODELS[@]} models (5 native + $((${#MODELS[@]} - 5)) via Bedrock)"
 }
 
 lookup_model() {
@@ -213,7 +213,7 @@ if [[ "$TYPE" == "native" ]]; then
 
 elif [[ "$TYPE" == "proxy" ]]; then
     check_proxy
-    echo "[mode] LiteLLM proxy -> Bedrock Mantle (localhost:$PROXY_PORT)"
+    echo "[mode] LiteLLM proxy -> Amazon Bedrock (localhost:$PROXY_PORT)"
     echo ""
     ANTHROPIC_BASE_URL="http://localhost:${PROXY_PORT}" \
     ANTHROPIC_API_KEY="bedrock-proxy" \

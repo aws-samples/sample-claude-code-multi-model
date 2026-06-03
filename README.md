@@ -1,7 +1,7 @@
 # Claude Code Multi-Model
 
 [![License: MIT-0](https://img.shields.io/badge/License-MIT--0-yellow.svg)](LICENSE)
-[![Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-Mantle-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
+[![Bedrock](https://img.shields.io/badge/Amazon-Bedrock-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
 [![Models: 43+](https://img.shields.io/badge/Models-43%2B%20from%2012%20providers-orange)](./)
 
 > **This is sample code intended for demonstration and learning purposes only.**
@@ -27,12 +27,12 @@ Two deployment paths are provided:
 
 | Path | Models | Cost Model | Best For |
 |------|--------|------------|----------|
-| [**Bedrock (Mantle)**](bedrock/) | 43 models from 12 providers | Pay-per-token | Model variety, zero infrastructure |
+| [**Bedrock**](bedrock/) | 43 models from 12 providers | Pay-per-token | Model variety, zero infrastructure |
 | [**Self-Hosted (EC2)**](self-hosted/) | Any Ollama/vLLM model | Fixed hourly GPU cost | Data sovereignty, air-gapped, unlimited tokens |
 
 **What you get:**
 
-- Run Claude Code with **43 Bedrock models** (5 native Anthropic + 38 third-party via Bedrock Mantle), or any open-source model you self-host on EC2
+- Run Claude Code with **43 Bedrock models** (5 native Anthropic + 38 third-party via Bedrock), or any open-source model you self-host on EC2
 - A one-command **LiteLLM proxy** that handles Anthropic↔OpenAI translation, tool calling, and streaming
 - An interactive **model picker** and per-model launch scripts
 - A reproducible **HumanEval benchmark** to compare model quality before you route work to a cheaper model (see [below](#benchmark))
@@ -51,15 +51,15 @@ Two deployment paths are provided:
          │ Native Path  │  │ LiteLLM      │  │ LiteLLM          │
          │ (no proxy)   │  │ Proxy        │  │ Proxy            │
          │              │  │ → Bedrock    │  │ → Self-Hosted    │
-         │ Claude Opus  │  │   Mantle     │  │   (Ollama/vLLM)  │
-         │ Claude Sonnet│  │              │  │                  │
+         │ Claude Opus  │  │  (OpenAI-    │  │   (Ollama/vLLM)  │
+         │ Claude Sonnet│  │   compatible)│  │                  │
          │ Claude Haiku │  │ 38 models    │  │ Any GGUF/HF      │
          └──────┬───────┘  │ 12 providers │  │ model on GPU     │
                 │          └──────┬───────┘  └────────┬─────────┘
                 │                 │                    │
          ┌──────▼───────┐  ┌─────▼────────┐  ┌───────▼─────────┐
-         │ Amazon       │  │ Bedrock      │  │ EC2 GPU         │
-         │ Bedrock      │  │ Mantle       │  │ Instance        │
+         │ Amazon       │  │ Amazon       │  │ EC2 GPU         │
+         │ Bedrock      │  │ Bedrock      │  │ Instance        │
          │ (Anthropic)  │  │ (us-east-1)  │  │ (your VPC)      │
          └──────────────┘  └──────────────┘  └─────────────────┘
 ```
@@ -89,7 +89,7 @@ caveats, and reproduce steps in [bedrock/README.md](bedrock/README.md#benchmark-
 - **Python 3.9+** (for the LiteLLM proxy and Bedrock token generation)
 - For the self-hosted path: permission to launch an **EC2 GPU instance** (e.g. `g6e.xlarge`)
 
-> Bedrock Mantle (the OpenAI-compatible endpoint for third-party models) is currently available in **`us-east-1`**.
+> The OpenAI-compatible Bedrock endpoint used for third-party models is currently available in **`us-east-1`**.
 
 ## Quick Start
 
@@ -126,7 +126,7 @@ See [self-hosted/README.md](self-hosted/README.md) for instance types, GPU selec
 
 ## Comparison
 
-| | Bedrock (Mantle) | Self-Hosted (EC2) |
+| | Bedrock | Self-Hosted (EC2) |
 |---|---|---|
 | **Models** | 43 from 12 providers | Any GGUF/HF model |
 | **Pricing** | Per-token ($0.15-$15/M) | Per-hour ($0.84-$4.60/hr GPU) |
@@ -148,7 +148,7 @@ claude-code-multi-model/
 ├── SUPPORT.md
 ├── THIRD_PARTY                Third-party dependency attributions
 ├── .github/                   Issue and pull-request templates
-├── bedrock/                   ← Bedrock Mantle path (38 third-party + 5 Anthropic)
+├── bedrock/                   ← Bedrock path (38 third-party + 5 Anthropic)
 │   ├── README.md              Full Bedrock setup guide + benchmark
 │   ├── scripts/               setup-proxy.sh, claude-model.sh, mantle-token.sh
 │   ├── config/                litellm-config.yaml, claude-proxy-settings.json

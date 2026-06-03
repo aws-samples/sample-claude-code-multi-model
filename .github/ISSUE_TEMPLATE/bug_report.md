@@ -10,7 +10,7 @@ assignees: ''
 A clear and concise description of what the bug is.
 
 **Which path?**
-- [ ] Bedrock (Mantle) — `bedrock/`
+- [ ] Bedrock — `bedrock/`
 - [ ] Self-hosted (EC2) — `self-hosted/`
 
 **To reproduce**

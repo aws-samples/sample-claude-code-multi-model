@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# mantle-token.sh — Generate a Bedrock Mantle bearer token from IAM credentials
+# mantle-token.sh — Generate a Amazon Bedrock bearer token from IAM credentials
 #
 # Uses aws-bedrock-token-generator to create a 12-hour bearer token
-# for the Bedrock Mantle Chat Completions API.
+# for the Amazon Bedrock Chat Completions API.
 #
 # Usage:
 #   eval $(./scripts/mantle-token.sh)           # export MANTLE_API_KEY
@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [--region REGION] [--print]"
             echo ""
-            echo "Generates a Bedrock Mantle bearer token from your AWS credentials."
+            echo "Generates a Amazon Bedrock bearer token from your AWS credentials."
             echo "Default region: us-east-1"
             echo ""
             echo "Options:"
@@ -48,14 +48,14 @@ print(provide_token(region='${REGION}'))
 ")
 
 if [[ -z "$TOKEN" ]]; then
-    echo "[error] Failed to generate Mantle token. Check AWS credentials." >&2
+    echo "[error] Failed to generate Bedrock token. Check AWS credentials." >&2
     exit 1
 fi
 
 case $ACTION in
     export)
         echo "export MANTLE_API_KEY='${TOKEN}'"
-        echo "[token] Mantle bearer token generated for ${REGION} (valid 12h)" >&2
+        echo "[token] Bedrock bearer token generated for ${REGION} (valid 12h)" >&2
         ;;
     print)
         echo "$TOKEN"

@@ -1,16 +1,16 @@
-# LiteLLM Proxy Config — Multi-Model Support for Claude Code via Bedrock Mantle
+# LiteLLM Proxy Config — Multi-Model Support for Claude Code via Amazon Bedrock
 #
-# Backend: Bedrock Mantle (bedrock-mantle.{region}.api.aws) — OpenAI Chat Completions API
-# All 38 Mantle models support tools + streaming natively.
+# Backend: Amazon Bedrock (bedrock-mantle.{region}.api.aws) — OpenAI Chat Completions API
+# All 38 models support tools + streaming natively.
 #
 # Auth: Bearer token from aws-bedrock-token-generator (MANTLE_API_KEY env var)
-# Base URL: hardcoded to us-east-1 (only available Mantle region)
+# Base URL: hardcoded to us-east-1 (only available region)
 # The setup-proxy.sh script handles token generation automatically.
 #
 # Architecture:
 #   Claude Code (Anthropic Messages API)
 #     -> LiteLLM Proxy (localhost:4000, translates Anthropic -> OpenAI format)
-#       -> Bedrock Mantle (Chat Completions API, bearer token auth)
+#       -> Amazon Bedrock (Chat Completions API, bearer token auth)
 #         -> Any of 39 models from 12+ providers
 #
 # Usage: litellm --config config/litellm-config.yaml --port 4000

@@ -1,7 +1,7 @@
 # Claude Code Multi-Model on Amazon Bedrock
 
 [![License: MIT-0](https://img.shields.io/badge/License-MIT--0-yellow.svg)](LICENSE)
-[![Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-Mantle-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
+[![Bedrock](https://img.shields.io/badge/Amazon-Bedrock-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
 [![Models: 43](https://img.shields.io/badge/Models-43%20from%2012%20providers-orange)](./)
 
 > **This is sample code intended for demonstration and learning purposes only.**
@@ -11,7 +11,7 @@
 Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with **any of 43
 foundation models on Amazon Bedrock** — not just Anthropic models. A LiteLLM proxy
 translates Claude Code's Anthropic Messages API to the OpenAI Chat Completions API
-that Bedrock Mantle's third-party models speak, so you can route routine tasks to
+that Bedrock's OpenAI-compatible third-party models speak, so you can route routine tasks to
 cheaper models and reserve frontier models for complex work. Native Anthropic
 models run directly on Bedrock with no proxy.
 
@@ -36,7 +36,7 @@ across models.
    └───────┬────────┘                       └────────┬──────────┘
            │                                          │
    ┌───────▼────────┐                       ┌────────▼──────────┐
-   │  Amazon        │                       │  Bedrock Mantle   │
+   │  Amazon        │                       │  Amazon Bedrock   │
    │  Bedrock       │                       │  (Chat Completions│
    │  (Anthropic)   │                       │   API, us-east-1) │
    │                │                       │                   │
@@ -45,9 +45,9 @@ across models.
    └────────────────┘                       └───────────────────┘
 ```
 
-**Why a proxy?** Claude Code speaks the Anthropic Messages API (`/v1/messages`). Bedrock Mantle's third-party models speak the OpenAI Chat Completions API (`/v1/chat/completions`). [LiteLLM](https://github.com/BerriAI/litellm) translates between these formats.
+**Why a proxy?** Claude Code speaks the Anthropic Messages API (`/v1/messages`). Bedrock's OpenAI-compatible third-party models speak the OpenAI Chat Completions API (`/v1/chat/completions`). [LiteLLM](https://github.com/BerriAI/litellm) translates between these formats.
 
-**Why Mantle?** Bedrock Mantle is a unified OpenAI-compatible endpoint for non-Anthropic models on Bedrock. All 38 models support tool calling and streaming natively — no per-model configuration needed.
+**Why this endpoint?** Amazon Bedrock exposes a unified OpenAI-compatible endpoint for its non-Anthropic models. All 38 models support tool calling and streaming natively — no per-model configuration needed.
 
 ## Supported Models (43 total)
 
@@ -61,7 +61,7 @@ across models.
 | `claude-opus-4.5` | Claude Opus 4.5 | Previous gen flagship |
 | `claude-sonnet-4.5` | Claude Sonnet 4.5 | Previous gen balanced |
 
-### Third-Party (38 — via LiteLLM proxy → Bedrock Mantle)
+### Third-Party (38 — via LiteLLM proxy → Amazon Bedrock)
 
 | Provider | Models | Aliases |
 |----------|--------|---------|
@@ -76,7 +76,7 @@ across models.
 | **Google** (3) | Gemma 3 27B/12B/4B | `gemma-3-27b`, `gemma-3-12b`, `gemma-3-4b` |
 | **Writer** (1) | Palmyra Vision 7B | `palmyra-vision-7b` |
 
-> **Note:** Meta Llama, Amazon Nova, and DeepSeek R1 are available on Bedrock but are **not** on Mantle — they lack tool calling support required by Claude Code.
+> **Note:** Meta Llama, Amazon Nova, and DeepSeek R1 are available on Bedrock but **not** through the OpenAI-compatible endpoint — they lack tool calling support required by Claude Code.
 
 ## Benchmark (HumanEval)
 
@@ -90,10 +90,10 @@ assertion holds.
 | Model | Routing | pass@1 | Passed | Avg time/task |
 | --- | --- | --- | --- | --- |
 | Claude Sonnet 4.6 | native Bedrock | **97.6%** | 160/164 | 3.4s |
-| Kimi K2.5 | proxy → Mantle | 96.3% | 158/164 | 5.9s |
-| DeepSeek V3 | proxy → Mantle | 94.5% | 155/164 | 19.6s |
-| Qwen Coder Next | proxy → Mantle | 91.5% | 150/164 | 14.1s |
-| Qwen Coder 30B | proxy → Mantle | 90.9% | 149/164 | 9.5s |
+| Kimi K2.5 | proxy → Bedrock | 96.3% | 158/164 | 5.9s |
+| DeepSeek V3 | proxy → Bedrock | 94.5% | 155/164 | 19.6s |
+| Qwen Coder Next | proxy → Bedrock | 91.5% | 150/164 | 14.1s |
+| Qwen Coder 30B | proxy → Bedrock | 90.9% | 149/164 | 9.5s |
 
 All 164 tasks, single run per model. The budget models reach 93–99% of the
 frontier model's pass rate on this benchmark. Remaining failures are genuine
@@ -158,7 +158,7 @@ chmod +x scripts/*.sh
 ### 3. Use third-party models (proxy required)
 
 ```bash
-# Step 1: Start the LiteLLM proxy (generates Mantle token, installs deps)
+# Step 1: Start the LiteLLM proxy (generates Bedrock token, installs deps)
 ./scripts/setup-proxy.sh
 
 # Step 2: Run Claude Code with any model
@@ -196,7 +196,7 @@ chmod +x scripts/*.sh
 # Check status
 ./scripts/setup-proxy.sh --status
 
-# Refresh Mantle bearer token (valid 12h)
+# Refresh Bedrock bearer token (valid 12h)
 ./scripts/setup-proxy.sh --refresh
 
 # Stop proxy
@@ -255,29 +255,29 @@ alias cc-kimi="$CC_PROXY claude --settings ~/claude-code-multi-model-bedrock/con
 
 | File | What it does |
 | --- | --- |
-| [scripts/setup-proxy.sh](scripts/setup-proxy.sh) | One-command proxy setup: generates Mantle token, installs LiteLLM, starts proxy |
+| [scripts/setup-proxy.sh](scripts/setup-proxy.sh) | One-command proxy setup: generates Bedrock token, installs LiteLLM, starts proxy |
 | [scripts/claude-model.sh](scripts/claude-model.sh) | Interactive model picker / launcher for all 43 models |
-| [scripts/mantle-token.sh](scripts/mantle-token.sh) | Standalone Mantle bearer token generator (12h validity) |
-| [config/litellm-config.yaml](config/litellm-config.yaml) | LiteLLM proxy config with all 38 Mantle models |
+| [scripts/mantle-token.sh](scripts/mantle-token.sh) | Standalone Bedrock bearer token generator (12h validity) |
+| [config/litellm-config.yaml](config/litellm-config.yaml) | LiteLLM proxy config with all 38 models |
 | [config/claude-proxy-settings.json](config/claude-proxy-settings.json) | Claude Code settings override (disables native Bedrock mode) |
 
 ## How It Works
 
 1. **Token generation**: `setup-proxy.sh` generates a bearer token from your AWS IAM credentials using `aws-bedrock-token-generator`. Tokens are scoped to `us-east-1` and valid for 12 hours.
 
-2. **LiteLLM translation**: The proxy receives Anthropic Messages API requests from Claude Code and translates them to OpenAI Chat Completions format for Bedrock Mantle.
+2. **LiteLLM translation**: The proxy receives Anthropic Messages API requests from Claude Code and translates them to OpenAI Chat Completions format for Amazon Bedrock.
 
-3. **Bedrock Mantle**: AWS's unified endpoint (`bedrock-mantle.us-east-1.api.aws`) routes requests to the selected model. All 38 non-Anthropic models support tool calling and streaming.
+3. **Amazon Bedrock**: AWS's unified endpoint (`bedrock-mantle.us-east-1.api.aws`) routes requests to the selected model. All 38 non-Anthropic models support tool calling and streaming.
 
-4. **Key env var**: `LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true` forces LiteLLM to use `/v1/chat/completions` (not `/v1/responses`) — required for Mantle compatibility with LiteLLM v1.83+.
+4. **Key env var**: `LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true` forces LiteLLM to use `/v1/chat/completions` (not `/v1/responses`) — required for endpoint compatibility with LiteLLM v1.83+.
 
 ## Limitations
 
 - **Context window**: Third-party models have smaller context windows (128K or less) compared to Claude's 200K. Claude Code's system prompt is large (~100K chars), so very small models may not work well.
 - **Tool calling quality**: Claude Code relies heavily on structured tool use. Non-Anthropic models vary in tool-calling reliability.
 - **Prompt caching**: Disabled for proxy models (not supported across the translation layer).
-- **Region**: Bedrock Mantle is currently only available in `us-east-1`.
-- **Token expiry**: Mantle bearer tokens expire after 12 hours. Use `./scripts/setup-proxy.sh --refresh` to regenerate.
+- **Region**: Amazon Bedrock is currently only available in `us-east-1`.
+- **Token expiry**: Bedrock bearer tokens expire after 12 hours. Use `./scripts/setup-proxy.sh --refresh` to regenerate.
 
 ## Troubleshooting
 

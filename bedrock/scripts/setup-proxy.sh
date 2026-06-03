@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# setup-proxy.sh — Install and start the LiteLLM proxy for Bedrock Mantle
+# setup-proxy.sh — Install and start the LiteLLM proxy for Amazon Bedrock
 #
 # This proxy translates the Anthropic Messages API (Claude Code) to the
-# OpenAI Chat Completions API (Bedrock Mantle — all 38 third-party models).
+# OpenAI Chat Completions API (Amazon Bedrock — all 38 third-party models).
 #
 # Backend: bedrock-mantle.us-east-1.api.aws (NOT bedrock-runtime)
 # Auth: Bearer token generated from IAM credentials (12h validity)
@@ -21,7 +21,7 @@ set -euo pipefail
 #   ./scripts/setup-proxy.sh              # install + start on port 4000
 #   ./scripts/setup-proxy.sh --port 8080  # custom port
 #   ./scripts/setup-proxy.sh --stop       # stop running proxy
-#   ./scripts/setup-proxy.sh --refresh    # refresh Mantle token (no restart)
+#   ./scripts/setup-proxy.sh --refresh    # refresh Bedrock token (no restart)
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +39,7 @@ usage() {
     echo "  --port PORT   Port to run proxy on (default: $DEFAULT_PORT)"
     echo "  --stop        Stop running proxy"
     echo "  --status      Check if proxy is running"
-    echo "  --refresh     Refresh Mantle bearer token without restarting"
+    echo "  --refresh     Refresh Bedrock bearer token without restarting"
     exit 1
 }
 
@@ -90,7 +90,7 @@ check_status() {
 }
 
 generate_token() {
-    echo "[token] Generating Mantle bearer token for $MANTLE_REGION..."
+    echo "[token] Generating Bedrock bearer token for $MANTLE_REGION..."
 
     if ! python3 -c "import aws_bedrock_token_generator" 2>/dev/null; then
         echo "[install] Installing aws-bedrock-token-generator..."
@@ -106,7 +106,7 @@ print(provide_token(region='${MANTLE_REGION}'))
 ")
 
     if [[ -z "$token" ]]; then
-        echo "[error] Failed to generate Mantle token. Check AWS credentials."
+        echo "[error] Failed to generate Bedrock token. Check AWS credentials."
         exit 1
     fi
 
@@ -144,7 +144,7 @@ start_proxy() {
         python3 -m pip install "litellm[proxy]" --quiet
     fi
 
-    # Generate Mantle bearer token
+    # Generate Bedrock bearer token
     generate_token
 
     # Stop existing proxy if running
@@ -152,10 +152,10 @@ start_proxy() {
 
     echo "[start] LiteLLM proxy on port $PORT"
     echo "[config] $CONFIG_FILE"
-    echo "[backend] Bedrock Mantle (bedrock-mantle.$MANTLE_REGION.api.aws)"
+    echo "[backend] Amazon Bedrock (bedrock-mantle.$MANTLE_REGION.api.aws)"
     echo ""
 
-    # Start in background with Mantle token + routing fix exported
+    # Start in background with Bedrock token + routing fix exported
     export MANTLE_API_KEY
     export LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
     nohup litellm --config "$CONFIG_FILE" --port "$PORT" > "$PROJECT_DIR/.litellm.log" 2>&1 &
@@ -170,7 +170,7 @@ start_proxy() {
             echo "[pid] $(cat "$PID_FILE")"
             echo "[log] $PROJECT_DIR/.litellm.log"
             echo ""
-            echo "Available models (38 via Mantle):"
+            echo "Available models (38 via Bedrock):"
             curl -s "http://localhost:${PORT}/v1/models" | python3 -c "
 import json, sys
 data = json.load(sys.stdin).get('data', [])
