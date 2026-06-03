@@ -25,7 +25,12 @@ def main():
     results_dir = Path(sys.argv[1])
     completions_dir = results_dir / "completions"
 
-    ds = load_dataset("openai_humaneval", split="test")
+    # Pin to the same revision the runner used so re-scoring is reproducible.
+    ds = load_dataset(
+        "openai_humaneval",
+        split="test",
+        revision="7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544",
+    )
     by_id = {t["task_id"]: t for t in ds}
 
     results = []

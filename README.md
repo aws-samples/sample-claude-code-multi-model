@@ -37,6 +37,27 @@ Two deployment paths are provided:
 - An interactive **model picker** and per-model launch scripts
 - A reproducible **HumanEval benchmark** to compare model quality before you route work to a cheaper model (see [below](#benchmark))
 
+## Why this repo exists
+
+A coding agent session is token-heavy: tool calls, file reads, edits, and reasoning
+steps all consume input and output tokens. On Amazon Bedrock, frontier models cost
+roughly **5–20x more per token** than the cheapest non-Anthropic models on the same
+endpoint (see the cost columns in the [Benchmark](#benchmark) table). Running every
+task on a frontier model is therefore the most expensive default; running every
+task on the cheapest model risks worse output. The interesting question is how
+much quality you actually lose by routing routine tasks to a cheaper model — and
+that depends on the task and the model.
+
+This repository exists to make that question answerable with data, not opinion:
+
+- It lets Claude Code run against **any** of 43 Bedrock models, not just Anthropic ones, so the same agent harness can be measured across the cost range
+- It includes a **HumanEval pass@1 benchmark** that re-runs all 164 tasks through the agent for each model, with per-token cost listed alongside
+- It also supports a **self-hosted EC2 path** for the case where the per-token model is the wrong cost shape (very high volume, or data must stay in your VPC)
+
+The benchmark numbers below are evidence, not advertising — single-run pass@1 on
+164 small Python tasks. Use them as a starting point and run your own evaluation
+on workloads that look like yours before routing real traffic.
+
 ## Architecture
 
 ```text

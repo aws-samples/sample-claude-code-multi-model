@@ -20,7 +20,8 @@ import argparse
 import csv
 import json
 import os
-import subprocess
+# Used to invoke `claude` and `python3` for the benchmark; shell=True is never used.
+import subprocess  # nosec B404
 import sys
 import tempfile
 import time
@@ -39,17 +40,33 @@ PROXY_PORT = 4000
 TIMEOUT_PER_TASK = 180        # 3 min: an agent loop on one small function
 TEST_TIMEOUT = 30            # seconds to run the generated code + unit tests
 RESULTS_DIR = Path(__file__).parent / "results" / f"humaneval_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-# Clean, empty Claude config dir so user-level settings.json can't hijack routing.
-CLEAN_CONFIG_DIR = "/tmp/claude_bench_config"
+# Clean, empty Claude config dir so user-level settings.json can't hijack
+# routing. Created lazily under a per-user temp dir on first use (see
+# `_get_clean_config_dir`).
+CLEAN_CONFIG_DIR: "str | None" = None
+# Pin the HumanEval dataset to a known revision so the benchmark is reproducible.
+HUMANEVAL_DATASET = "openai_humaneval"
+HUMANEVAL_REVISION = "7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544"
 # Explicit native Bedrock model/inference-profile IDs for pinned Sonnet versions.
 NATIVE_MODEL_IDS = {
     "claude-sonnet-46": "us.anthropic.claude-sonnet-4-6",
 }
 
 
+def _get_clean_config_dir():
+    """Return a per-user, isolated Claude config dir. Created lazily so we don't
+    use a fixed world-writable /tmp path (which Bandit B108 flags)."""
+    global CLEAN_CONFIG_DIR
+    if CLEAN_CONFIG_DIR is None:
+        CLEAN_CONFIG_DIR = tempfile.mkdtemp(prefix="claude_bench_config_")
+    return CLEAN_CONFIG_DIR
+
+
 def load_tasks(num_tasks=20, all_tasks=False):
-    """Load HumanEval tasks (a deterministic prefix so every model sees the same set)."""
-    ds = load_dataset("openai_humaneval", split="test")
+    """Load HumanEval tasks pinned to a known revision so the benchmark is
+    reproducible (a deterministic prefix is taken so every model sees the same
+    set)."""
+    ds = load_dataset(HUMANEVAL_DATASET, split="test", revision=HUMANEVAL_REVISION)
     tasks = list(ds)
     if all_tasks:
         return tasks
@@ -117,7 +134,7 @@ def run_claude_code(task, model):
     # Use a clean Claude config dir so any user-level settings.json (which may
     # pin ANTHROPIC_BASE_URL to a local Ollama, CLAUDE_CODE_USE_BEDROCK=0, etc.)
     # does NOT override the per-model routing below.
-    env["CLAUDE_CONFIG_DIR"] = CLEAN_CONFIG_DIR
+    env["CLAUDE_CONFIG_DIR"] = _get_clean_config_dir()
     # Drop any inherited overrides that would hijack routing.
     for k in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
               "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -149,9 +166,12 @@ def run_claude_code(task, model):
     with tempfile.TemporaryDirectory(prefix="humaneval_") as work_dir:
         start = time.time()
         try:
-            result = subprocess.run(
+            # `cmd` is built from constants and the model alias, not user
+            # input; shell=True is intentionally NOT used.
+            result = subprocess.run(  # nosec B603
                 cmd, cwd=work_dir, env=env,
-                capture_output=True, text=True, timeout=TIMEOUT_PER_TASK
+                capture_output=True, text=True, timeout=TIMEOUT_PER_TASK,
+                check=False,
             )
             elapsed = time.time() - start
         except subprocess.TimeoutExpired:
@@ -194,8 +214,11 @@ def evaluate(task, completion_code):
         f.write(program)
         path = f.name
     try:
-        proc = subprocess.run(
-            ["python3", path], capture_output=True, text=True, timeout=TEST_TIMEOUT
+        # `python3` resolved from PATH, args are a temp file path we just
+        # wrote. shell=True is intentionally NOT used.
+        proc = subprocess.run(  # nosec B603 B607
+            ["python3", path], capture_output=True, text=True,
+            timeout=TEST_TIMEOUT, check=False,
         )
         if proc.returncode == 0:
             return True, "passed"
