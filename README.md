@@ -71,20 +71,18 @@ you're trying to answer:
 
 ```mermaid
 flowchart TD
-    CC["<b>Claude Code CLI</b><br/><sub>POST /v1/messages</sub>"]
+    CC["Claude Code CLI<br/>POST /v1/messages"]
+    Proxy["LiteLLM Proxy<br/>Anthropic ↔ OpenAI format"]
+    BedrockA["Amazon Bedrock<br/>───────────────<br/>7 Anthropic models<br/>Opus · Sonnet · Haiku"]
+    BedrockM["Amazon Bedrock (mantle endpoint)<br/>───────────────<br/>38 third-party models<br/>Qwen · Kimi · DeepSeek · Mistral …"]
 
-    Proxy["<b>LiteLLM Proxy</b><br/><sub>Anthropic ↔ OpenAI<br/>format translation</sub>"]
+    CC -- "Anthropic Messages" --> BedrockA
+    CC -- "Anthropic Messages" --> Proxy
+    Proxy -- "/v1/chat/completions" --> BedrockM
 
-    BedrockA["<b>Amazon Bedrock</b><br/><br/><b>7 Anthropic</b><br/>• Opus<br/>• Sonnet<br/>• Haiku"]
-    BedrockM["<b>Amazon Bedrock</b><br/><sub>(mantle endpoint)</sub><br/><br/><b>38 third-party</b><br/>• Qwen<br/>• Kimi<br/>• DeepSeek<br/>• Mistral …"]
-
-    CC -->|Anthropic Messages| BedrockA
-    CC -->|Anthropic Messages| Proxy
-    Proxy -->|/v1/chat/completions| BedrockM
-
-    classDef agent fill:#1F2937,stroke:#374151,color:#F9FAFB
-    classDef proxy fill:#7C3AED,stroke:#5B21B6,color:#FFFFFF
-    classDef bedrock fill:#FF9900,stroke:#B36B00,color:#1F2937
+    classDef agent fill:#E5E7EB,stroke:#6B7280,color:#111827
+    classDef proxy fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    classDef bedrock fill:#FFF3E0,stroke:#FF9900,color:#1F2937
     class CC agent
     class Proxy proxy
     class BedrockA,BedrockM bedrock
@@ -117,13 +115,13 @@ calling and streaming natively — no per-model configuration needed.
 
 ```mermaid
 flowchart TD
-    CC["<b>Claude Code CLI</b><br/><sub>ANTHROPIC_BASE_URL=<br/>http://localhost:11434</sub>"]
-    EC2["<b>EC2 GPU instance</b><br/>Ollama (OpenAI-compatible)<br/>open-source model"]
+    CC["Claude Code CLI<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:11434"]
+    EC2["EC2 GPU instance<br/>Ollama (OpenAI-compatible)<br/>open-source model"]
 
-    CC -->|"SSH tunnel<br/>localhost:11434 → EC2:11434"| EC2
+    CC -- "SSH tunnel<br/>localhost:11434 → EC2:11434" --> EC2
 
-    classDef agent fill:#1F2937,stroke:#374151,color:#F9FAFB
-    classDef ec2 fill:#FF9900,stroke:#B36B00,color:#1F2937
+    classDef agent fill:#E5E7EB,stroke:#6B7280,color:#111827
+    classDef ec2 fill:#FFF3E0,stroke:#FF9900,color:#1F2937
     class CC agent
     class EC2 ec2
 ```

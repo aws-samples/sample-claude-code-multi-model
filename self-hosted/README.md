@@ -14,18 +14,18 @@ full control over the model.
 
 ```mermaid
 flowchart TD
-    subgraph Local["<b>Your Machine</b>"]
-        CC["<b>Claude Code CLI</b><br/><sub>ANTHROPIC_BASE_URL=<br/>localhost:11434</sub>"]
+    subgraph Local["Your Machine"]
+        CC["Claude Code CLI<br/>ANTHROPIC_BASE_URL=<br/>localhost:11434"]
     end
 
-    subgraph AWS["<b>AWS</b>"]
-        EC2["<b>Amazon EC2 GPU Instance (g6e.xlarge)</b><br/>Ollama serving Qwen 3.5-35B<br/>NVIDIA L40S, 45GB VRAM"]
+    subgraph AWS["AWS"]
+        EC2["Amazon EC2 GPU Instance (g6e.xlarge)<br/>Ollama serving Qwen 3.5-35B<br/>NVIDIA L40S, 45GB VRAM"]
     end
 
-    CC -->|"SSH tunnel (encrypted, no open ports)<br/>localhost:11434 → EC2:11434"| EC2
+    CC -- "SSH tunnel (encrypted, no open ports)<br/>localhost:11434 → EC2:11434" --> EC2
 
-    classDef agent fill:#1F2937,stroke:#374151,color:#F9FAFB
-    classDef ec2 fill:#FF9900,stroke:#B36B00,color:#1F2937
+    classDef agent fill:#E5E7EB,stroke:#6B7280,color:#111827
+    classDef ec2 fill:#FFF3E0,stroke:#FF9900,color:#1F2937
     class CC agent
     class EC2 ec2
 ```
