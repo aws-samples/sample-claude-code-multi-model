@@ -238,20 +238,58 @@ at tag `1.24.4`, with **5 tasks × 5 models = 25 artifact bundles** on disk:
 **Models benchmarked:** Claude Opus 4.8, Kimi K2 Thinking / K2.5, Mistral
 Devstral 2 123B, MiniMax M2.5, Qwen Coder Next.
 
-**Cross-model scores (GPT-judged):** each artifact bundle is scored 0–100 by
-an independent ChatGPT session against a 4-criterion rubric (Completeness,
-Correctness, Specificity, Risk Awareness — each 0–25). The full matrix,
-per-model leaderboard, and synthesis are in
-[`benchmarks/swe-benchmark-data/mcp-gateway-registry/JUDGE_RESULTS.md`](benchmarks/swe-benchmark-data/mcp-gateway-registry/JUDGE_RESULTS.md);
-per-cell breakdowns with criterion scores and judge notes are in
-`{task}/{model}/judge-gpt.json`.
+**Cross-model scores (GPT-judged):** each artifact bundle was scored 0–100 by
+an independent ChatGPT session against the [4-criterion × 25-point rubric](#scoring-rubric-llm-as-judge)
+above. Per-cell breakdowns with criterion scores and judge notes are in
+`{task}/{model}/judge-gpt.json`; the consolidated report is in
+[`benchmarks/swe-benchmark-data/mcp-gateway-registry/JUDGE_RESULTS.md`](benchmarks/swe-benchmark-data/mcp-gateway-registry/JUDGE_RESULTS.md).
 
-Headline: Opus 4.8 wins every row (89.95 avg). Kimi family is a clear #2
-(82.15 avg). The mid/budget tier — Qwen / Devstral / MiniMax — clusters at
-74–80 with task-by-task variance, not a clean ordering. SSRF was the hardest
-task by score (76.3 avg), not the README-labelled "High" tasks. Setup,
-per-model invocation steps, and the judging rubric are in
-[`benchmarks/swe-benchmark-data/README.md`](benchmarks/swe-benchmark-data/README.md).
+#### Results — 5 × 5 matrix
+
+| Task | Opus 4.8 | Kimi¹ | Devstral 123B | MiniMax M2.5 | Qwen Coder Next | Task avg |
+|------|---------:|------:|--------------:|-------------:|----------------:|---------:|
+| `remove-faiss` | **90.8** | 87.8 ᵀ | 77.8 | 73.5 | 80.8 | 82.1 |
+| `remove-efs-from-terraform-aws-ecs` | **90.8** | 83.5 ᵀ | 83.8 | 76.0 | 80.2 | 82.8 |
+| `ssrf-hardening-outbound-url-validation` | **90.0** | 66.2 ᵀ | 70.5 | 69.2 | 85.8 | 76.3 |
+| `migrate-ecs-env-vars-to-secrets-manager` | **90.5** | 87.0 ⁵ | 75.0 | 78.5 | 80.8 | 82.3 |
+| `replace-keycloak-db-password-with-rds-iam` | **87.8** | 86.2 ⁵ | 72.8 | 76.2 | 71.5 | 78.9 |
+
+Bold = top score in row. ¹ Kimi variant: ᵀ = K2 Thinking (tasks 1–3),
+⁵ = K2.5 (tasks 4–5; substituted mid-benchmark after K2 Thinking's Bedrock
+backend started hanging requests).
+
+#### Per-model leaderboard
+
+| Rank | Model | Avg | # tasks |
+|-----:|-------|----:|--------:|
+| 🥇 | Claude Opus 4.8 | **89.95** | 5 |
+| 🥈 | Kimi (combined K2 Thinking + K2.5) | **82.15** | 5 |
+| 🥉 | Qwen Coder Next | 79.80 | 5 |
+| 4 | Mistral Devstral 2 123B | 75.95 | 5 |
+| 5 | MiniMax M2.5 | 74.70 | 5 |
+
+#### What the data says
+
+- **Opus 4.8 wins every row** by 3–24 points. Per-cell delta to the
+  second-place model is small relative to the 10–25× per-token cost ratio.
+- **Kimi is a clear #2**, with a known dip on SSRF where K2 Thinking
+  under-enumerated edge cases (66.2 vs Opus's 90.0).
+- **Mid/budget tier is not a clean ordering.** Qwen has the highest mid-tier
+  average but only because of one outlier — strip SSRF out and Qwen,
+  Devstral, and MiniMax are within ~2 points of each other. Devstral wins
+  `remove-efs`, MiniMax wins `keycloak-iam`.
+- **SSRF was the genuine hardest task** (76.3 avg, 23.8-point spread), not
+  the README-labelled "High" tasks. Security work rewards edge-case
+  enumeration (private IPs, DNS rebinding, redirect handling) which the
+  mid-tier under-delivered on.
+- **Qwen has a coder-specialist sweet spot**: best mid-tier result on SSRF
+  (85.8), weakest on Keycloak IAM (71.5, lost points to hallucinated AWS
+  mechanics — judge flagged "impossible ideas such as Lambda valueFrom for
+  ECS secrets").
+- **20× cost spread → ~15-point quality spread.** At the top of the field,
+  the budget models are genuinely good enough for routine refactors and
+  code-heavy work; frontier reasoning earns its premium on AWS-specific
+  infrastructure design.
 
 > **The example repo is the example, not the contract.** `/swe` works against
 > any GitHub URL — clone the target you actually care about, write the task
