@@ -82,7 +82,15 @@ you're trying to answer:
 - An interactive **model picker** and per-model launch scripts
 - A **`/swe` skill** for repo-grounded SWE benchmarking, plus a **`/summarize`** skill for after-action reporting (token usage, errors, themes per run)
 - A reproducible **HumanEval benchmark** with cross-model pass@1 + per-token-cost numbers
-- A **GPT-judged 5×5 SWE matrix** comparing model quality on real refactor / security tasks against a real repo ([`benchmarks/swe-benchmark-data/mcp-gateway-registry/JUDGE_RESULTS.md`](benchmarks/swe-benchmark-data/mcp-gateway-registry/JUDGE_RESULTS.md))
+- A **GPT-judged 5×5 SWE matrix** comparing model quality on real refactor / security tasks (full matrix and findings in [Evaluation 1 → Worked example](#worked-example-mcp-gateway-registry) below). At a glance:
+
+  | Rank | Model | Avg score / 100 |
+  |-----:|-------|----------------:|
+  | 🥇 | Claude Opus 4.8 | 89.95 |
+  | 🥈 | Kimi (combined) | 82.15 |
+  | 🥉 | Qwen Coder Next | 79.80 |
+  | 4 | Mistral Devstral 2 123B | 75.95 |
+  | 5 | MiniMax M2.5 | 74.70 |
 
 ## Architecture
 
