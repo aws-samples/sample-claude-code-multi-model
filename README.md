@@ -2,7 +2,7 @@
 
 [![License: MIT-0](https://img.shields.io/badge/License-MIT--0-yellow.svg)](LICENSE)
 [![Bedrock](https://img.shields.io/badge/Amazon-Bedrock-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
-[![Models: 45](https://img.shields.io/badge/Models-45%20from%2011%20providers-orange)](./)
+[![Models: 47](https://img.shields.io/badge/Models-47%20from%2011%20providers-orange)](./)
 
 > **This is sample code intended for demonstration and learning purposes only.**
 > It is not meant for production use. Review and harden all scripts, configurations,
@@ -15,7 +15,7 @@ This repository does **two** things, in this order:
 1. **Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) against
    non-Anthropic models.** Claude Code is Anthropic's command-line coding agent;
    by default it talks only to Anthropic's own models. Here it's wired up to
-   any of 45 foundation models on Amazon Bedrock (Qwen, DeepSeek, Kimi, MiniMax,
+   any of 47 foundation models on Amazon Bedrock (Qwen, DeepSeek, Kimi, MiniMax,
    Mistral, GPT-OSS, GLM, Gemma, Nemotron, Palmyra, plus the 7 native Anthropic
    models), or to any open-source model you self-host on an EC2 GPU instance.
 2. **Measure how well each of those models actually does coding work.** Once you
@@ -56,7 +56,7 @@ runs and how Claude Code reaches it.
 
 | Path | Models | Cost Model | Best For |
 |------|--------|------------|----------|
-| [**Bedrock**](bedrock/) | 45 models from 11 providers | Pay-per-token | Model variety, zero infrastructure |
+| [**Bedrock**](bedrock/) | 47 models from 11 providers | Pay-per-token | Model variety, zero infrastructure |
 | [**Self-Hosted (EC2)**](self-hosted/) | Any Ollama/vLLM model | Fixed hourly GPU cost | Data sovereignty, air-gapped, unlimited tokens |
 
 ### How it measures the models
@@ -77,7 +77,7 @@ you're trying to answer:
 
 **What you get end to end:**
 
-- Run Claude Code with **45 Bedrock models** (7 native Anthropic + 38 third-party) on the managed path, **or** any open-source model you self-host on an EC2 GPU instance (Ollama / vLLM)
+- Run Claude Code with **47 Bedrock models** (7 native Anthropic + 40 third-party) on the managed path, **or** any open-source model you self-host on an EC2 GPU instance (Ollama / vLLM)
 - A one-command **LiteLLM proxy** for the Bedrock path that handles Anthropic↔OpenAI translation, tool calling, and streaming (the self-hosted path uses Ollama directly via SSH tunnel, no proxy)
 - An interactive **model picker** and per-model launch scripts
 - A **`/swe` skill** for repo-grounded SWE benchmarking, plus a **`/summarize`** skill for after-action reporting (token usage, errors, themes per run)
@@ -102,7 +102,7 @@ flowchart TD
     CC["Claude Code CLI<br/>POST /v1/messages"]
     Proxy["LiteLLM Proxy<br/>Anthropic ↔ OpenAI format"]
     BedrockA["Amazon Bedrock<br/>───────────────<br/>7 Anthropic models<br/>Opus · Sonnet · Haiku"]
-    BedrockM["Amazon Bedrock (mantle endpoint)<br/>───────────────<br/>38 third-party models<br/>Qwen · Kimi · DeepSeek · Mistral …"]
+    BedrockM["Amazon Bedrock (mantle endpoint)<br/>───────────────<br/>40 third-party models<br/>Qwen · Kimi · DeepSeek · Mistral …"]
     SpacerL[" "]:::ghost
 
     CC -- "Anthropic Messages" --> BedrockA
@@ -139,7 +139,7 @@ OpenAI Chat Completions for those non-Anthropic models.
 [OpenAI-compatible endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html)
 for non-Anthropic foundation models. It exposes Chat Completions and
 Responses (the same shapes OpenAI's own SDKs use) and supports API-key auth
-or AWS SigV4. All 38 third-party models on this endpoint support tool
+or AWS SigV4. All 40 third-party models on this endpoint support tool
 calling and streaming natively — no per-model configuration needed.
 
 ### Self-hosted path
@@ -352,7 +352,7 @@ Pick a path that matches what you're trying to do.
 **Just want to run a non-Anthropic model through Claude Code?**
 
 - **[bedrock/README.md](bedrock/README.md)** — Bedrock path. Start the LiteLLM
-  proxy and run Claude Code against any of the 45 models with `claude-model.sh`.
+  proxy and run Claude Code against any of the 47 models with `claude-model.sh`.
 - **[self-hosted/README.md](self-hosted/README.md)** — Self-hosted path. Provision
   a GPU instance, install Ollama, open an SSH tunnel, and run Claude Code against
   a model in your VPC.
@@ -374,7 +374,7 @@ Pick a path that matches what you're trying to do.
 
 | | Bedrock | Self-Hosted (EC2) |
 |---|---|---|
-| **Models** | 45 from 11 providers | Any GGUF/HF model |
+| **Models** | 47 from 11 providers | Any GGUF/HF model |
 | **Pricing** | Per-token ($0.15-$15/M) | Per-hour ($0.84-$4.60/hr GPU) |
 | **Setup time** | 5 minutes | 15-20 minutes |
 | **Latency** | Varies by model (a few sec to minutes/task) | Depends on GPU + model size |
@@ -410,7 +410,7 @@ claude-code-multi-model/
 │           ├── ssrf-hardening-outbound-url-validation/
 │           ├── migrate-ecs-env-vars-to-secrets-manager/
 │           └── replace-keycloak-db-password-with-rds-iam/
-├── bedrock/                   ← Bedrock path (38 third-party + 7 Anthropic)
+├── bedrock/                   ← Bedrock path (40 third-party + 7 Anthropic)
 │   ├── README.md              Full Bedrock setup guide + HumanEval benchmark
 │   ├── pyproject.toml         uv-managed deps for proxy + benchmark
 │   ├── scripts/               setup-proxy.sh, claude-model.sh, mantle-token.sh

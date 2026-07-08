@@ -2,13 +2,13 @@
 
 [![License: MIT-0](https://img.shields.io/badge/License-MIT--0-yellow.svg)](../LICENSE)
 [![Bedrock](https://img.shields.io/badge/Amazon-Bedrock-blue)](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
-[![Models: 45](https://img.shields.io/badge/Models-45%20from%2011%20providers-orange)](./)
+[![Models: 47](https://img.shields.io/badge/Models-47%20from%2011%20providers-orange)](./)
 
 > **This is sample code intended for demonstration and learning purposes only.**
 > It is not meant for production use. Review and harden all scripts, configurations,
 > and IAM permissions before using in any production or sensitive environment.
 
-Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with **any of 45
+Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with **any of 47
 foundation models from 11 providers on Amazon Bedrock** — not just Anthropic models. A LiteLLM proxy
 translates Claude Code's Anthropic Messages API to the OpenAI Chat Completions API
 that the third-party models on Bedrock's OpenAI-compatible `bedrock-mantle`
@@ -26,7 +26,7 @@ flowchart TD
     CC["Claude Code CLI<br/>POST /v1/messages"]
     Proxy["LiteLLM Proxy<br/>Anthropic ↔ OpenAI format"]
     BedrockA["Amazon Bedrock<br/>───────────────<br/>7 Anthropic models<br/>Opus · Sonnet · Haiku"]
-    BedrockM["Amazon Bedrock (mantle endpoint)<br/>───────────────<br/>38 third-party models<br/>Qwen · Kimi · DeepSeek · Mistral …"]
+    BedrockM["Amazon Bedrock (mantle endpoint)<br/>───────────────<br/>40 third-party models<br/>Qwen · Kimi · DeepSeek · Mistral …"]
     SpacerL[" "]:::ghost
 
     CC -- "Anthropic Messages" --> BedrockA
@@ -58,10 +58,13 @@ OpenAI Chat Completions for those non-Anthropic models.
 [OpenAI-compatible endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html)
 for non-Anthropic foundation models. It exposes Chat Completions and
 Responses (the same shapes OpenAI's own SDKs use) and supports API-key auth
-or AWS SigV4. All 38 third-party models on this endpoint support tool
-calling and streaming natively — no per-model configuration needed.
+or AWS SigV4. All 40 third-party models on this endpoint support tool
+calling and streaming natively — no per-model configuration needed. Most
+route through Chat Completions; GPT-5.5 and GPT-5.4 route through Responses
+instead (see the OpenAI row below) — LiteLLM bridges this automatically, so
+it's transparent to Claude Code either way.
 
-## Supported Models (45 total)
+## Supported Models (47 total)
 
 > Pass the **raw Bedrock model ID** to `--model`. No aliases — what you type is what hits Bedrock.
 
@@ -77,7 +80,7 @@ calling and streaming natively — no per-model configuration needed.
 | `us.anthropic.claude-opus-4-5-20251101-v1:0` | Claude Opus 4.5 | Previous gen flagship |
 | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 | Previous gen balanced |
 
-### Third-Party (38 — via LiteLLM proxy → Amazon Bedrock)
+### Third-Party (40 — via LiteLLM proxy → Amazon Bedrock)
 
 | Provider | Models | Bedrock Model IDs |
 |----------|--------|-------------------|
@@ -87,12 +90,14 @@ calling and streaming natively — no per-model configuration needed.
 | **Moonshot AI** (2) | Kimi K2.5, K2 Thinking | `moonshotai.kimi-k2.5`, `moonshotai.kimi-k2-thinking` |
 | **MiniMax** (3) | M2, M2.1, M2.5 | `minimax.minimax-m2`, `minimax.minimax-m2.1`, `minimax.minimax-m2.5` |
 | **NVIDIA** (4) | Nemotron Super 120B, Nano 30B/12B/9B | `nvidia.nemotron-super-3-120b`, `nvidia.nemotron-nano-3-30b`, `nvidia.nemotron-nano-12b-v2`, `nvidia.nemotron-nano-9b-v2` |
-| **OpenAI** (4) | GPT OSS 120B/20B, Safeguard 120B/20B | `openai.gpt-oss-120b`, `openai.gpt-oss-20b`, `openai.gpt-oss-safeguard-120b`, `openai.gpt-oss-safeguard-20b` |
+| **OpenAI** (6) | GPT-5.5, GPT-5.4, GPT OSS 120B/20B, Safeguard 120B/20B | `gpt-5.5`, `gpt-5.4`, `openai.gpt-oss-120b`, `openai.gpt-oss-20b`, `openai.gpt-oss-safeguard-120b`, `openai.gpt-oss-safeguard-20b` |
 | **Z.AI** (4) | GLM 5, 4.7, 4.7 Flash, 4.6 | `zai.glm-5`, `zai.glm-4.7`, `zai.glm-4.7-flash`, `zai.glm-4.6` |
 | **Google** (3) | Gemma 3 27B/12B/4B | `google.gemma-3-27b-it`, `google.gemma-3-12b-it`, `google.gemma-3-4b-it` |
 | **Writer** (1) | Palmyra Vision 7B | `writer.palmyra-vision-7b` |
 
 > **Note:** Meta Llama, Amazon Nova, and DeepSeek R1 are available on Bedrock but **not** on the `bedrock-mantle` endpoint — they lack tool calling support required by Claude Code.
+>
+> **Note:** GPT-5.5 and GPT-5.4 are Responses-API-only on `bedrock-mantle` — they reject Chat Completions requests. The `gpt-5.5`/`gpt-5.4` entries in `config/litellm-config.yaml` set `model_info.mode: responses` so LiteLLM routes them correctly; no extra setup is needed when launching through `scripts/claude-model.sh`.
 
 ## Benchmark (HumanEval)
 
@@ -227,7 +232,7 @@ can find it.
 
 ```bash
 ./scripts/claude-model.sh
-# Shows numbered list of all 45 models — pick one
+# Shows numbered list of all 47 models — pick one
 ```
 
 ### 6. List all available models
@@ -335,9 +340,9 @@ alias cc-kimi="$CC_PROXY claude --settings ~/sample-claude-code-multi-model/bedr
 | File | What it does |
 | --- | --- |
 | [scripts/setup-proxy.sh](scripts/setup-proxy.sh) | One-command proxy setup: generates Bedrock token, installs LiteLLM, starts proxy |
-| [scripts/claude-model.sh](scripts/claude-model.sh) | Interactive model picker / launcher for all 45 models |
+| [scripts/claude-model.sh](scripts/claude-model.sh) | Interactive model picker / launcher for all 47 models |
 | [scripts/mantle-token.sh](scripts/mantle-token.sh) | Standalone Bedrock bearer token generator (12h validity) |
-| [config/litellm-config.yaml](config/litellm-config.yaml) | LiteLLM proxy config with all 38 models |
+| [config/litellm-config.yaml](config/litellm-config.yaml) | LiteLLM proxy config with all 40 models |
 | [config/claude-proxy-settings.json](config/claude-proxy-settings.json) | Claude Code settings override (disables native Bedrock mode) |
 
 ## How It Works
@@ -346,7 +351,7 @@ alias cc-kimi="$CC_PROXY claude --settings ~/sample-claude-code-multi-model/bedr
 
 2. **LiteLLM translation**: The proxy receives Anthropic Messages API requests from Claude Code and translates them to OpenAI Chat Completions format for the `bedrock-mantle` endpoint.
 
-3. **`bedrock-mantle` endpoint**: Amazon Bedrock's [OpenAI-compatible endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html) (`bedrock-mantle.us-east-1.api.aws`) routes requests to the selected model. All 38 non-Anthropic models support tool calling and streaming.
+3. **`bedrock-mantle` endpoint**: Amazon Bedrock's [OpenAI-compatible endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html) (`bedrock-mantle.us-east-1.api.aws`) routes requests to the selected model. All 40 non-Anthropic models support tool calling and streaming.
 
 4. **Key env var**: `LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true` forces LiteLLM to use `/v1/chat/completions` (not `/v1/responses`) — required for `bedrock-mantle` compatibility with LiteLLM v1.83+.
 

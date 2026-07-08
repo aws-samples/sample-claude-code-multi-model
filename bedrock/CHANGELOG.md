@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- Support for GPT-5.5 and GPT-5.4 (`gpt-5.5`, `gpt-5.4`) via the LiteLLM proxy
+- `model_info.mode: responses` routing for GPT-5.5/GPT-5.4 in `config/litellm-config.yaml`, since these models only support the OpenAI Responses API on `bedrock-mantle` (Chat Completions returns a 400)
+
 ## [1.0.0] - 2026-05-04
 
 ### Added

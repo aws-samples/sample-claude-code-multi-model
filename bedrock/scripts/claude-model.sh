@@ -82,6 +82,8 @@ MODELS=(
     "nvidia.nemotron-nano-9b-v2|proxy|Nemotron Nano 9B — smallest"
 
     # ── OpenAI GPT OSS (via Bedrock) ──────────────────────────────
+    "gpt-5.5|proxy|GPT 5.5 — OpenAI flagship, Responses API"
+    "gpt-5.4|proxy|GPT 5.4 — OpenAI previous flagship, Responses API"
     "openai.gpt-oss-120b|proxy|GPT OSS 120B — open-source GPT"
     "openai.gpt-oss-20b|proxy|GPT OSS 20B — compact open-source GPT"
     "openai.gpt-oss-safeguard-120b|proxy|GPT OSS Safeguard 120B"
