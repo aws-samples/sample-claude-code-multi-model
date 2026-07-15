@@ -91,7 +91,14 @@ else
     ok "vLLM installed: $("$VLLM_ENV/bin/python" -c 'import vllm; print(vllm.__version__)')"
 fi
 
-header "Step 6 — Install GPU monitoring tooling"
+header "Step 6 — Install ninja (required for DeepGemm/FlashInfer JIT)"
+if ! "$VLLM_ENV/bin/python" -c "import ninja" 2>/dev/null; then
+    info "Installing ninja into the vLLM venv..."
+    VIRTUAL_ENV="$VLLM_ENV" uv pip install --python "$VLLM_ENV/bin/python" ninja
+fi
+ok "ninja ready ($VLLM_ENV/bin/ninja)"
+
+header "Step 7 — Install GPU monitoring tooling"
 # nvidia-smi ships with the driver (already present on the DLAMI). Add two nicer
 # live monitors so you can watch VRAM + utilization while the benchmark runs:
 #   nvtop   — htop-style TUI for GPUs (apt)
@@ -110,7 +117,7 @@ if ! "$VLLM_ENV/bin/python" -c "import gpustat" 2>/dev/null; then
 fi
 "$VLLM_ENV/bin/python" -c "import gpustat" 2>/dev/null && ok "gpustat ready ($VLLM_ENV/bin/gpustat)"
 
-header "Step 7 — Verify vLLM sees the GPUs"
+header "Step 8 — Verify vLLM sees the GPUs"
 "$VLLM_ENV/bin/python" - <<'PY'
 import torch
 n = torch.cuda.device_count()
