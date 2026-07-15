@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Settings file for Claude Code pointing at a local vLLM server. Pass via: claude --settings self-hosted/vllm/config/claude-code.json",
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8000",
+    "ANTHROPIC_API_KEY": "local",
+    "CLAUDE_CODE_USE_BEDROCK": "0",
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
+  },
+  "apiKeyHelper": "echo sk-local-vllm",
+  "_models": {
+    "_comment": "Pass the model name via --model flag. Examples below.",
+    "g6e.12xlarge (4×L40S, 184GB)": {
+      "qwen3.6-35b": {"context": 200000, "output": 20000},
+      "qwen3-coder-30b": {"context": 200000, "output": 20000},
+      "devstral-small-2-24b": {"context": 128000, "output": 16000},
+      "qwen3-coder-next": {"context": 65536, "output": 16000}
+    },
+    "p5en.48xlarge (8×H200, 1.13TB)": {
+      "glm-5.2": {"context": 300000, "output": 32000},
+      "kimi-k2": {"context": 131072, "output": 32000}
+    }
+  }
+}
