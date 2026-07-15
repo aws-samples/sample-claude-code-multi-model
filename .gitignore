@@ -39,3 +39,4 @@ security-review-findings.xlsx
 .DS_Store
 .venv/
 tmp/
+.claude/worktrees/
