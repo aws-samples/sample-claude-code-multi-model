@@ -42,6 +42,13 @@ set -euo pipefail
 #   GPU_MEM_UTIL       fraction of VRAM vLLM may use  (default: 0.90)
 #   TOOL_PARSER        vLLM tool-call parser          (default: qwen3_coder)
 #                      set to "" / "none" to disable tool calling
+#   REASONING_PARSER   vLLM reasoning parser — separates thinking tokens into a
+#                      dedicated content block instead of leaking into response text.
+#                      Examples: glm47, qwen3, deepseek_r1. Leave unset to disable.
+#                      (default: unset)
+#   EXTRA_ARGS         extra flags passed through to vllm serve verbatim.
+#                      e.g. EXTRA_ARGS="--trust-remote-code --enforce-eager"
+#                      (default: unset)
 #   HF_HOME            where HF downloads/caches weights. Defaults to the DLAMI's
 #                      large NVMe scratch (/opt/dlami/nvme/hf-cache) when present,
 #                      because the root disk (~193 GB) is too small for the 80B
@@ -74,6 +81,8 @@ ROPE_SCALING="${ROPE_SCALING:-}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 TOOL_PARSER="${TOOL_PARSER:-qwen3_coder}"
+REASONING_PARSER="${REASONING_PARSER:-}"
+EXTRA_ARGS="${EXTRA_ARGS:-}"
 VLLM_ENV="${VLLM_ENV:-$HOME/vllm-env}"
 
 # Where HuggingFace downloads and caches weights. The default HF location is
@@ -272,6 +281,19 @@ if [[ -n "$TOOL_PARSER" && "$TOOL_PARSER" != "none" ]]; then
   info "Tools:        enabled (parser: $TOOL_PARSER)"
 else
   info "Tools:        disabled (plain completion server)"
+fi
+
+# Reasoning parser — separates thinking into a dedicated content block.
+if [[ -n "$REASONING_PARSER" ]]; then
+  ARGS+=( --reasoning-parser "$REASONING_PARSER" )
+  info "Reasoning:    enabled (parser: $REASONING_PARSER)"
+fi
+
+# Extra args — pass-through for model-specific flags (e.g. --trust-remote-code).
+if [[ -n "$EXTRA_ARGS" ]]; then
+  read -ra EXTRA_ARRAY <<< "$EXTRA_ARGS"
+  ARGS+=( "${EXTRA_ARRAY[@]}" )
+  info "Extra args:   $EXTRA_ARGS"
 fi
 
 mkdir -p "$LOG_DIR"
