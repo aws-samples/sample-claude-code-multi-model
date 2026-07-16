@@ -40,3 +40,4 @@ security-review-findings.xlsx
 .venv/
 tmp/
 .claude/worktrees/
+benchmarks/swe-benchmark-data/**/replay.jsonl

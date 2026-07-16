@@ -22,7 +22,7 @@ set -euo pipefail
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 MODEL="${MODEL:-qwen3.6-35b}"
-MAX_OUTPUT_TOKENS="${MAX_OUTPUT_TOKENS:20000}"
+MAX_OUTPUT_TOKENS="${MAX_OUTPUT_TOKENS:-16000}"
 
 fail() { echo "[error] $*" >&2; exit 1; }
 
@@ -53,6 +53,7 @@ export ANTHROPIC_BASE_URL="http://${HOST}:${PORT}"
 export ANTHROPIC_API_KEY="local"
 export CLAUDE_CODE_USE_BEDROCK="0"
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS="${MAX_OUTPUT_TOKENS}"
+export CLAUDE_CODE_SUBAGENT_MODEL="${MODEL}"
 export DISABLE_NON_ESSENTIAL_MODEL_CALLS="1"
 
 CLAUDE_ARGS=(--model "$MODEL" --setting-sources local,project)
