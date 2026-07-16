@@ -211,6 +211,26 @@ model_list:
       api_base: https://bedrock-mantle.us-east-1.api.aws/v1
       api_key: os.environ/MANTLE_API_KEY
 
+  # GPT 5.x — Responses-API-only (as of 2026-06 available in us-east-1; same
+  # MANTLE_API_KEY as the other models). Mantle serves these ONLY at
+  # /openai/v1/responses; /v1/chat/completions and /v1/responses both 400, so
+  # LiteLLM must bridge to the Responses API (mode: responses).
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/openai.gpt-5.5
+      api_base: https://bedrock-mantle.us-east-1.api.aws/openai/v1
+      api_key: os.environ/MANTLE_API_KEY
+    model_info:
+      mode: responses
+
+  - model_name: gpt-5.4
+    litellm_params:
+      model: openai/openai.gpt-5.4
+      api_base: https://bedrock-mantle.us-east-1.api.aws/openai/v1
+      api_key: os.environ/MANTLE_API_KEY
+    model_info:
+      mode: responses
+
   # ── Z.AI (GLM) ─────────────────────────────────────────────────
   - model_name: zai.glm-5
     litellm_params:
