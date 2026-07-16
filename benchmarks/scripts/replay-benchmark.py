@@ -81,8 +81,8 @@ def detect_model(endpoint):
                 return real[0]
             if models:
                 return models[0]["id"]
-    except Exception:
-        pass
+    except Exception:  # nosec B110 - best-effort detection, fallback below
+        return "kimi-k2.7-code"
     return "kimi-k2.7-code"
 
 
