@@ -21,6 +21,7 @@ dev = [
 [dependency-groups]
 dev = [
     "ruff>=0.4.0",
+    "mypy>=1.10.0",
 ]
 
 # These clients talk to the vLLM server over HTTP; they do NOT import vllm and
