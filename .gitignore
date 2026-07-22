@@ -15,6 +15,8 @@ ONE_PAGER.md
 *.log
 # vLLM server / benchmark logs are tee'd to the console AND to this dir; never commit them
 self-hosted/vllm/logs/
+# Generated request, summary, and server-metric CSVs from the vLLM benchmark client
+self-hosted/vllm/benchmark-output/
 .env
 .env.*
 .scratchpad/

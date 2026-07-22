@@ -261,7 +261,7 @@ cd self-hosted/vllm
 # uv is already installed by vllm-install.sh; if you're on a fresh laptop:
 #   curl -LsSf https://astral.sh/uv/install.sh | sh
 
-uv sync                       # creates .venv/ and installs openai, httpx, tiktoken
+uv sync                       # creates .venv/ and installs the locked client dependencies
 ```
 
 `uv sync` reads [`pyproject.toml`](pyproject.toml), resolves a locked set into `.venv/`, and writes `uv.lock` for reproducibility. Then run any client with `uv run` (no need to activate the venv):
@@ -279,13 +279,83 @@ BASE_URL=http://localhost:8000/v1 MODEL=qwen3-coder-30b \
   uv run clients/hello_inference.py
 ```
 
+For repeatable performance runs, use the benchmark client. It measures each streaming request from the client and takes before/after snapshots of vLLM's Prometheus `/metrics` endpoint:
+
+```bash
+uv run clients/benchmark_inference.py \
+  --model qwen3.6-35b \
+  --requests 20 \
+  --concurrency 4 \
+  --warmup 1 \
+  --max-tokens 256 \
+  --run-name qwen36-baseline
+```
+
+The command writes three timestamped files under `benchmark-output/`:
+
+| CSV | Contents |
+|-----|----------|
+| `*-requests.csv` | One row per request: TTFT, TTLT, end-to-end latency, TPOT, queue time, token counts, throughput, finish reason, and error status |
+| `*-server-metrics.csv` | Long-form before/after/delta rows for every `vllm:*` Prometheus sample, including latency histograms, scheduler state, KV-cache use, prefix-cache metrics, and preemptions |
+| `*-summary.csv` | One run row with p50/p90/p95/p99 latency, request and token throughput, failures, and server-side mean latency deltas |
+
+vLLM's OpenTelemetry integration emits traces; its `/metrics` endpoint exposes the Prometheus metrics used here. The benchmark combines server aggregates with exact client-observed request timings. Use `--prompts-file prompts.jsonl` for a workload file containing `{"id":"case-id","prompt":"..."}` objects, and run `uv run clients/benchmark_inference.py --help` for all controls.
+
+### Continuous background metrics
+
+The per-run benchmark snapshots are deliberately bounded. For an independent time series that stays active while coding assistants and other clients send requests, start the DuckDB collector:
+
+```bash
+# Default: scrape every five seconds
+./scripts/vllm-metrics.sh start
+
+# Or start at one-second resolution for short experiments:
+METRICS_INTERVAL=1 ./scripts/vllm-metrics.sh start
+
+./scripts/vllm-metrics.sh status
+./scripts/vllm-metrics.sh stop
+```
+
+The default five-second interval stores every `vllm:*` Prometheus sample in `benchmark-output/vllm-metrics.duckdb`. DuckDB compresses repeated metric names and labels and is much more practical than an unbounded CSV. Collection sessions, scrape health, timestamps, durations, and failures are retained alongside metric values.
+
+| DuckDB object | Purpose |
+|---------------|---------|
+| `collector_sessions` | Collector process, endpoint, interval, and start/stop timestamps |
+| `metric_scrapes` | One row per poll, including status, duration, error, and sample count |
+| `metric_samples` | Raw long-form metric name, type, JSON labels, and value |
+| `vllm_metric_samples` | Joined analytics view with timestamps, model name, and engine |
+| `vllm_metric_deltas` | Adds interval deltas for cumulative counters and histogram sums/counts |
+
+Run short, read-only queries while the collector is active; do not leave a separate DuckDB connection open because DuckDB is an embedded database rather than a multi-process database server. The collector opens the database only for brief writes and continues if a foreground query temporarily holds the file lock.
+
+```bash
+uv run python -c 'import duckdb; c=duckdb.connect("benchmark-output/vllm-metrics.duckdb", read_only=True); c.sql("SELECT scraped_at, metric, value, labels FROM vllm_metric_samples ORDER BY scraped_at DESC LIMIT 20").show()'
+```
+
 | Dependency | Why it's here |
 |------------|---------------|
 | `openai` | the OpenAI-compatible client for vLLM's `/v1` endpoint |
 | `httpx` | raw HTTP + async — for streaming and concurrency probes |
 | `tiktoken` | token accounting when comparing cost against API pricing |
+| `prometheus-client` | parse vLLM's Prometheus `/metrics` snapshots |
+| `duckdb` | compressed storage and SQL analytics for continuous metrics |
+| `pytz` | DuckDB timestamp conversion support |
 
 `.venv/` is gitignored; `uv.lock` is committed so the client environment is reproducible.
+
+### Visualize the metrics (HTML dashboard)
+
+`build_dashboard.py` reads the collector's DuckDB and renders a single self-contained HTML file (data embedded inline, no server or CDN) with headline KPI tiles and time-series panels for throughput, concurrency, KV-cache use, request latency, and finish reasons.
+
+```bash
+# Defaults: reads benchmark-output/vllm-metrics.duckdb, writes benchmark-output/dashboard.html
+uv run python -m clients.build_dashboard
+
+# Or point at explicit paths:
+uv run python -m clients.build_dashboard --db benchmark-output/vllm-metrics.duckdb --output benchmark-output/dashboard.html
+```
+
+Open the generated `benchmark-output/dashboard.html` in any browser. It reads the database read-only and combines all collector sessions; regenerate it any time to pick up new scrapes.
 
 ---
 
@@ -472,9 +542,13 @@ Verified working end-to-end on the reference node: opencode's `build` agent driv
 | [scripts/vllm-install.sh](scripts/vllm-install.sh) | Full install: driver check → apt deps → uv → venv → vLLM → monitoring → GPU verify |
 | [scripts/vllm-serve.sh](scripts/vllm-serve.sh) | Serve a model tensor-parallel across all GPUs; tee's logs; `--foreground` / `--stop` |
 | [scripts/vllm-verify.sh](scripts/vllm-verify.sh) | Smoke-test the endpoint with a real chat completion |
+| [scripts/vllm-metrics.sh](scripts/vllm-metrics.sh) | Start, inspect, or stop the continuous DuckDB metrics collector |
 | [scripts/claude-local.sh](scripts/claude-local.sh) | Launch Claude Code against the vLLM endpoint with temporary settings |
 | [scripts/opencode-setup.sh](scripts/opencode-setup.sh) | Install opencode (if missing) + point it at the vLLM endpoint |
 | [clients/hello_inference.py](clients/hello_inference.py) | Minimal Python inference client (openai SDK) |
+| [clients/benchmark_inference.py](clients/benchmark_inference.py) | Concurrent performance benchmark with request, server-metric, and summary CSV output |
+| [clients/collect_metrics.py](clients/collect_metrics.py) | Continuously scrape all vLLM Prometheus metrics into DuckDB |
+| [clients/build_dashboard.py](clients/build_dashboard.py) | Render the collected DuckDB metrics into a self-contained HTML dashboard |
 | [pyproject.toml](pyproject.toml) | `uv`-managed deps for the Python clients |
 | [config/opencode.json](config/opencode.json) | Reference opencode provider config for vLLM |
 | `logs/` | vLLM server logs (gitignored — never committed) |
