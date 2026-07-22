@@ -199,9 +199,15 @@ uv run scripts/run-swe-headless.py --config config/runner.yaml \
     --dataset dataset/hello-world.yaml --model qwen3-coder-30b \
     --tasks add-contributing-guide
 
+# Smoke-test a large dataset by running only its first task
+uv run scripts/run-swe-headless.py --config config/runner.yaml \
+    --dataset dataset/mcp-gateway-registry.yaml --count 1
+
 # Print the prompt and command for each task without running anything
 uv run scripts/run-swe-headless.py --config config/runner.yaml --dry-run
 ```
+
+`--count N` keeps only the first `N` tasks in dataset order (after any `--tasks` filter); `--count 0`, the default, runs them all.
 
 [scripts/run-swe-benchmark.sh](scripts/run-swe-benchmark.sh) is a thin convenience wrapper that forwards its arguments to the harness, injecting `--config config/runner.yaml` when you do not pass your own `--config`:
 

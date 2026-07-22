@@ -23,7 +23,7 @@ _spec.loader.exec_module(harness)
 
 import unittest  # noqa: E402
 
-from dataset_loader import Task  # noqa: E402
+from dataset_loader import Dataset, DatasetError, Task  # noqa: E402
 from runner_config import RunnerConfig  # noqa: E402
 
 
@@ -164,6 +164,53 @@ class BuildSettingsArgTest(unittest.TestCase):
             _config(settings_file="self-hosted/vllm/config/claude-code.json")
         )
         self.assertTrue(arg.endswith("self-hosted/vllm/config/claude-code.json"))
+
+
+def _dataset(n: int) -> Dataset:
+    """Build a dataset with n tasks (ids task-0..task-{n-1})."""
+    return Dataset.model_validate(
+        {
+            "schema_version": "1.0",
+            "name": "d",
+            "title": "D",
+            "description": "test",
+            "default_ref": "main",
+            "metrics": ["input_tokens", "output_tokens", "num_turns"],
+            "complexity_levels": ["low", "medium", "high"],
+            "tasks": [
+                {
+                    "id": f"task-{i}",
+                    "repo": "https://github.com/foo/bar",
+                    "complexity": "low",
+                    "tags": ["x"],
+                    "problem_statement": "do the thing",
+                }
+                for i in range(n)
+            ],
+        }
+    )
+
+
+class SelectTasksTest(unittest.TestCase):
+    def test_count_zero_returns_all(self) -> None:
+        tasks = harness._select_tasks(_dataset(3), [], count=0)
+        self.assertEqual([t.id for t in tasks], ["task-0", "task-1", "task-2"])
+
+    def test_count_takes_first_n_in_order(self) -> None:
+        tasks = harness._select_tasks(_dataset(3), [], count=1)
+        self.assertEqual([t.id for t in tasks], ["task-0"])
+
+    def test_count_larger_than_dataset_returns_all(self) -> None:
+        tasks = harness._select_tasks(_dataset(2), [], count=99)
+        self.assertEqual(len(tasks), 2)
+
+    def test_count_applies_after_task_id_filter(self) -> None:
+        tasks = harness._select_tasks(_dataset(4), ["task-1", "task-3"], count=1)
+        self.assertEqual([t.id for t in tasks], ["task-1"])
+
+    def test_negative_count_raises(self) -> None:
+        with self.assertRaises(DatasetError):
+            harness._select_tasks(_dataset(2), [], count=-1)
 
 
 class MetricsErrorTest(unittest.TestCase):

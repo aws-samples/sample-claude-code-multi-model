@@ -416,26 +416,33 @@ def _run_task(config: RunnerConfig, dataset: Dataset, task: Task) -> dict[str, A
     return {"task": task.id, "ok": ok, "artifacts": len(produced), "metrics": metrics}
 
 
-def _select_tasks(dataset: Dataset, task_ids: list[str]) -> list[Task]:
+def _select_tasks(dataset: Dataset, task_ids: list[str], count: int = 0) -> list[Task]:
     """Select tasks to run, preserving dataset order.
 
     Args:
         dataset: The loaded dataset.
         task_ids: Task ids to run; empty means all tasks.
+        count: Keep only the first ``count`` selected tasks; 0 means no limit.
 
     Returns:
         The tasks to run.
 
     Raises:
-        DatasetError: If a requested id is not in the dataset.
+        DatasetError: If a requested id is not in the dataset or count is negative.
     """
+    if count < 0:
+        raise DatasetError(f"--count must be 0 (all) or a positive integer, got {count}")
     if not task_ids:
-        return dataset.tasks
-    known = {t.id for t in dataset.tasks}
-    missing = [tid for tid in task_ids if tid not in known]
-    if missing:
-        raise DatasetError(f"Unknown task ids: {missing}. Available: {sorted(known)}")
-    return [t for t in dataset.tasks if t.id in set(task_ids)]
+        selected = dataset.tasks
+    else:
+        known = {t.id for t in dataset.tasks}
+        missing = [tid for tid in task_ids if tid not in known]
+        if missing:
+            raise DatasetError(
+                f"Unknown task ids: {missing}. Available: {sorted(known)}"
+            )
+        selected = [t for t in dataset.tasks if t.id in set(task_ids)]
+    return selected[:count] if count else selected
 
 
 def _dry_run(config: RunnerConfig, dataset: Dataset, tasks: list[Task]) -> None:
@@ -499,6 +506,12 @@ def _parse_args() -> argparse.Namespace:
         "--tasks", help="Override: comma-separated task ids to run (default: all)"
     )
     parser.add_argument(
+        "--count",
+        type=int,
+        default=0,
+        help="Run only the first N selected tasks (default: 0 = all)",
+    )
+    parser.add_argument(
         "--max-turns", type=int, help="Override: cap on the agent loop"
     )
     parser.add_argument(
@@ -530,7 +543,7 @@ def main() -> None:
         dataset_path = str(Path(__file__).resolve().parent.parent / dataset_path)
     try:
         dataset = load_dataset(dataset_path)
-        tasks = _select_tasks(dataset, config.tasks)
+        tasks = _select_tasks(dataset, config.tasks, args.count)
     except DatasetError as exc:
         logger.error("Dataset error: %s", exc)
         sys.exit(1)
