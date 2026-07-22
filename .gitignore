@@ -21,12 +21,12 @@ self-hosted/vllm/benchmark-output/
 .env.*
 .scratchpad/
 
-# Benchmark target repositories are cloned locally by contributors at a specific tag.
-# Keep the README and the generated artifacts tracked, but never commit the cloned source.
-# The double-glob form also catches nested copies a tool/cwd mistake might create
-# (e.g. bedrock/benchmarks/swe-benchmark-data/<repo>/repo/).
-benchmarks/swe-benchmark-data/*/repo/
-**/benchmarks/swe-benchmark-data/*/repo/
+# Benchmark run outputs (generated artifacts, metrics, and locally cloned target
+# repos) are produced per run and never committed. The double-glob form also
+# catches nested copies a tool/cwd mistake might create
+# (e.g. bedrock/benchmarks/swe-benchmark-data/).
+benchmarks/swe-benchmark-data/
+**/benchmarks/swe-benchmark-data/
 __pycache__/
 *.pyc
 credentials.json
@@ -42,4 +42,4 @@ security-review-findings.xlsx
 .venv/
 tmp/
 .claude/worktrees/
-benchmarks/swe-benchmark-data/**/replay.jsonl
+benchmarks/config/runner.yaml

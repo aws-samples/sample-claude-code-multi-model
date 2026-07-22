@@ -1,27 +1,43 @@
 #!/usr/bin/env python3
-"""Run the SWE benchmark headless against any Anthropic-compatible endpoint.
+"""Run the SWE benchmark headless: drive `claude -p /swe` over a dataset.
 
-Sends a single large prompt containing all codebase context + task description,
-and asks the model to produce all 4 artifacts in one response. No tool calls,
-no interactivity, no skill detection needed.
+Given a dataset YAML and a runner config (endpoint, model, claude flags), this
+harness runs each task end to end:
+
+  1. Clone the task's repo at its pinned ref into a temporary directory.
+  2. Invoke `claude -p "/swe repo: ... problem: ... model: ... answers: ..."`
+     non-interactively, letting the /swe skill produce the four design
+     artifacts (github-issue.md, lld.md, review.md, testing.md).
+  3. Parse the run's JSON result for the six benchmark metrics (input/output/
+     cache tokens, latency, and the number of LLM turns the agent took) and
+     write them to metrics.json next to the artifacts.
+
+Routing and claude flags come from the runner config; any field may be
+overridden on the command line (CLI wins).
 
 Usage:
-    python3 run-swe-headless.py --endpoint http://127.0.0.1:4000 --model deepseek-v3.2 --problem ssrf-hardening-outbound-url-validation
-    python3 run-swe-headless.py --endpoint http://127.0.0.1:8000 --model kimi-k2.7-code --problem remove-faiss
-
-Requires: requests
+    uv run scripts/run-swe-headless.py --config config/runner.example.yaml
+    uv run scripts/run-swe-headless.py --config config/runner.example.yaml \\
+        --model qwen3-coder-30b --tasks remove-faiss
+    uv run scripts/run-swe-headless.py --config config/runner.example.yaml --dry-run
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import logging
-import re
+import os
+import shutil
+import subprocess  # nosec B404 - used with list args, no shell, hardcoded command
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
-import requests
+from dataset_loader import Dataset, DatasetError, Task, load_dataset
+from runner_config import RunnerConfig, RunnerConfigError, load_runner_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,415 +45,500 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).parent.parent.parent
-BENCH_DIR = REPO_ROOT / "benchmarks" / "swe-benchmark-data" / "mcp-gateway-registry"
-REPO_DIR = BENCH_DIR / "repo"
-
-DEFAULT_MAX_TOKENS = 16000
-REQUEST_TIMEOUT_SECONDS = 600
-EXPECTED_ARTIFACT_COUNT = 4
-
-PROBLEMS = {
-    "ssrf-hardening-outbound-url-validation": {
-        "description": "SSRF hardening: validate outbound URLs on agent card fetch and health check endpoints. The registry fetches user-supplied URLs with no SSRF guard on the agent-card and health-check paths, even though a guard (_is_safe_url) already exists for SKILL.md fetches.",
-        "answers": "1. Security audit finding — the registry fetches user-supplied URLs (agent card, health checks) with no SSRF guard. An existing guard exists for skill fetches but isn't reused elsewhere. 2. Both — operators running the gateway and downstream teams registering MCP servers. 3. Python/FastAPI, runs on ECS, no deadline. Must be backwards-compatible. 4. Medium — promote existing _is_safe_url() into a shared utility, apply to agent-card fetch and server health-check paths, add config for allowlist.",
-        "key_files": [
-            "registry/services/skill_service.py:69-190",
-            "registry/utils/agent_validator.py:196-230",
-            "registry/health/service.py:620-710",
-            "registry/core/config.py:280-300",
-        ],
-    },
-    "migrate-ecs-env-vars-to-secrets-manager": {
-        "description": "Migrate sensitive ECS environment variables to AWS Secrets Manager. Identify which env vars in ECS task definitions contain secrets, create Secrets Manager resources in Terraform, update ECS task definitions to pull from Secrets Manager via the secrets block.",
-        "answers": "1. Plaintext secrets are stored as ECS environment variables in Terraform — security risk. Moving to Secrets Manager adds encryption, rotation, and audit trail. 2. Operators deploying the registry on AWS ECS + Terraform. 3. Terraform/ECS setup in this repo. No Helm/EKS needed. No deadline. 4. All sensitive env vars across all ECS services. 5. AWS Secrets Manager only. 6. Keep plaintext env-var as fallback during migration. 7. Medium — Terraform across all ECS services + app config loader changes.",
-        "key_files": [
-            "terraform/aws-ecs/modules/mcp-gateway/ecs-services.tf:1-100",
-            "terraform/aws-ecs/modules/mcp-gateway/iam.tf:1-50",
-            "terraform/aws-ecs/modules/mcp-gateway/secrets.tf:1-50",
-            "registry/core/config.py:1-60",
-        ],
-    },
-    "replace-keycloak-db-password-with-rds-iam": {
-        "description": "Replace the Keycloak database password with RDS IAM authentication. Switch Keycloak's RDS connection from static username/password to RDS IAM auth tokens.",
-        "answers": "1. Switch Keycloak's RDS connection from static username/password to RDS IAM authentication. Remove static password from config entirely. 2. Operators deploying on AWS ECS + RDS (Terraform). No Helm/EKS needed. 3. Must remain backwards-compatible with password auth as fallback (feature flag). No Keycloak version change. No deadline. 4. Medium.",
-        "key_files": [
-            "terraform/aws-ecs/keycloak-database.tf:1-50",
-            "terraform/aws-ecs/keycloak-ecs.tf:1-120",
-            "terraform/aws-ecs/variables.tf:90-110",
-            "docker/keycloak/Dockerfile:1-30",
-        ],
-    },
-    "remove-faiss": {
-        "description": "Remove FAISS from the codebase. FAISS is being replaced by DocumentDB's native hybrid search. Remove all FAISS imports, dependencies, configuration, code paths, Docker build steps, and tests.",
-        "answers": "1. FAISS replaced by DocumentDB native hybrid search. FAISS is unnecessary dependency complicating deployment. 2. Operators (no more FAISS native lib headaches) and developers (simpler codebase). End-users unaffected. 3. Python/FastAPI. Must not break existing search. No deadline. 4. Medium — remove FAISS code paths, dependencies, Docker build steps, tests.",
-        "key_files": [
-            "registry/search/service.py:1-50",
-            "registry/core/config.py:990-1010",
-            "registry/core/schemas.py:500-520",
-            "pyproject.toml:20-30",
-        ],
-    },
-    "remove-efs-from-terraform-aws-ecs": {
-        "description": "Remove EFS from terraform/aws-ecs/. EFS is obsolete — the application uses S3/DocumentDB for persistent storage. Delete EFS file system, mount targets, security groups, volume mounts from ECS task definitions.",
-        "answers": "1. EFS no longer needed — application uses S3/DocumentDB for all persistent storage. EFS adds cost and complexity. 2. Operators deploying via Terraform. 3. Terraform/AWS ECS. Must ensure no service depends on EFS mount. No deadline. 4. Medium — remove EFS resources from Terraform, remove volume/mount config from ECS task definitions.",
-        "key_files": [
-            "terraform/aws-ecs/modules/mcp-gateway/storage.tf:1-70",
-            "terraform/aws-ecs/modules/mcp-gateway/ecs-services.tf:215-230",
-            "terraform/aws-ecs/modules/mcp-gateway/variables.tf:255-280",
-            "terraform/aws-ecs/modules/mcp-gateway/outputs.tf:45-80",
-        ],
-    },
-}
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+ARTIFACT_FILENAMES = ("github-issue.md", "lld.md", "review.md", "testing.md")
+GIT_CLONE_TIMEOUT_SECONDS = 300
 
 
-def _read_file_range(
-    relative_path: str, line_range: tuple[int, int] | None = None
-) -> str:
-    """Read a file or a range of lines from the repo.
+def _repo_name(repo_url: str) -> str:
+    """Derive the kebab-case repo name from a clone URL.
 
     Args:
-        relative_path: Path relative to the benchmark repo directory.
-        line_range: Optional (start, end) 1-indexed inclusive line range.
+        repo_url: The HTTPS clone URL (with or without a trailing .git).
 
     Returns:
-        The requested file content with a header, or a not-found marker.
+        The repository basename, e.g. "mcp-gateway-registry".
     """
-    full_path = REPO_DIR / relative_path
-    if not full_path.exists():
-        return f"[FILE NOT FOUND: {relative_path}]"
-
-    lines = full_path.read_text(encoding="utf-8").splitlines()
-
-    if line_range:
-        start, end = line_range
-        lines = lines[max(0, start - 1) : end]
-        header = f"--- {relative_path} (lines {start}-{end}) ---"
-    else:
-        header = f"--- {relative_path} ---"
-
-    return f"{header}\n" + "\n".join(lines)
+    return repo_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
 
 
-def _build_context(problem_key: str) -> str:
-    """Build the codebase context for a problem.
+def _clone_repo(task: Task, ref: str, clone_dir: str) -> Path:
+    """Clone a task's repo at a ref into a temp dir named after the repo.
+
+    The checkout lands at ``<clone_dir>/<mktemp>/<repo-name>`` so the /swe skill,
+    which derives {repo-name} from the clone path's basename, gets the right name.
 
     Args:
-        problem_key: Slug identifying the problem in PROBLEMS.
+        task: The task whose repo to clone.
+        ref: The git ref (tag/branch/commit) to check out.
+        clone_dir: Parent directory for the temporary clone.
 
     Returns:
-        Concatenated source snippets for the problem's key files.
+        Path to the cloned repository.
+
+    Raises:
+        RuntimeError: If the clone command fails or times out.
     """
-    problem = PROBLEMS[problem_key]
-    context_parts = []
-
-    for file_spec in problem["key_files"]:
-        if ":" in file_spec:
-            path, range_str = file_spec.rsplit(":", 1)
-            start, end = map(int, range_str.split("-"))
-            context_parts.append(_read_file_range(path, (start, end)))
-        else:
-            context_parts.append(_read_file_range(file_spec))
-
-    return "\n\n".join(context_parts)
-
-
-def _build_structure_text() -> str:
-    """Build a top-2-levels directory listing of the repo.
-
-    Returns:
-        Newline-joined directory paths (up to the first 50 entries).
-    """
-    structure = []
-    for p in sorted(REPO_DIR.rglob("*")):
-        if ".git" in p.parts or "__pycache__" in p.parts or "node_modules" in p.parts:
-            continue
-        if p.is_dir() and len(p.relative_to(REPO_DIR).parts) <= 2:
-            structure.append(str(p.relative_to(REPO_DIR)) + "/")
-    return "\n".join(structure[:50])
-
-
-def _build_prompt(problem_key: str) -> str:
-    """Build the full prompt for a problem.
-
-    Args:
-        problem_key: Slug identifying the problem in PROBLEMS.
-
-    Returns:
-        The complete prompt string to send to the model.
-    """
-    problem = PROBLEMS[problem_key]
-    context = _build_context(problem_key)
-    structure_text = _build_structure_text()
-
-    return f"""You are a senior software engineer. You will produce 4 markdown design documents for the task below.
-
-DO NOT ask any questions. DO NOT request clarification. All information you need is provided. If anything is ambiguous, make your best judgment and note assumptions.
-
-## Repository: mcp-gateway-registry
-Tag: 1.24.4
-Tech stack: Python (FastAPI), Terraform (AWS ECS/RDS), TypeScript (React frontend)
-
-## Project Structure (top 2 levels)
-{structure_text}
-
-## Task: {problem_key}
-{problem["description"]}
-
-## Clarifying Answers (from the user)
-{problem["answers"]}
-
-## Key Source Files
-{context}
-
----
-
-## Instructions
-
-Produce exactly 4 artifacts below. Each artifact must be a complete, standalone markdown document. Separate them with the exact headers shown.
-
-=== github-issue.md ===
-Write a formal GitHub issue specification with:
-- Problem statement
-- Acceptance criteria (checkboxes)
-- Out-of-scope items
-- Implementation notes
-
-=== lld.md ===
-Write a low-level design document with:
-- Overview and goals
-- Codebase analysis (reference actual files and line numbers from the context above)
-- Architecture and data models
-- File-by-file implementation plan with code snippets
-- Configuration parameters
-- Alternatives considered
-- Rollout plan
-
-=== review.md ===
-Write a multi-persona expert review with 5 reviewers (Frontend, Backend, SRE, Security, SMTS). Each reviewer gives:
-- Verdict (APPROVED / APPROVED WITH CHANGES / NEEDS REVISION)
-- Key findings (2-4 bullet points)
-- Specific recommendations
-
-=== testing.md ===
-Write a testing plan covering:
-- Unit tests (with concrete test cases)
-- Integration tests
-- Functional/API tests (curl examples)
-- Backwards compatibility tests
-- Deployment surface tests (Terraform, Docker, Helm)
-- E2E tests
-
-Begin producing the artifacts now. Do not include any preamble or explanation outside the artifacts."""
-
-
-def _parse_artifacts(response_text: str) -> dict[str, str]:
-    """Parse the 4 artifacts from the model's response.
-
-    Args:
-        response_text: Raw text returned by the model.
-
-    Returns:
-        Mapping of artifact filename to its content.
-    """
-    artifacts: dict[str, str] = {}
-    pattern = r"=== (github-issue\.md|lld\.md|review\.md|testing\.md) ==="
-    parts = re.split(pattern, response_text)
-
-    # parts = [preamble, filename1, content1, filename2, content2, ...]
-    for i in range(1, len(parts) - 1, 2):
-        filename = parts[i]
-        content = parts[i + 1].strip()
-        artifacts[filename] = content
-
-    return artifacts
-
-
-def _send_request(
-    endpoint: str,
-    model: str,
-    prompt: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> dict[str, Any]:
-    """Send the prompt to the API endpoint.
-
-    Args:
-        endpoint: Base URL of the Anthropic-compatible API.
-        model: Model name to request.
-        prompt: The prompt text to send.
-        max_tokens: Maximum output tokens to generate.
-
-    Returns:
-        Dictionary with response text, token counts, latency, and model name.
-    """
-    url = f"{endpoint}/v1/messages"
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": "local",
-        "anthropic-version": "2023-06-01",
-    }
-    payload = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-
-    start = time.time()
+    name = _repo_name(task.repo)
+    parent = Path(tempfile.mkdtemp(prefix="swe-", dir=clone_dir))
+    dest = parent / name
+    logger.info("  Cloning %s @ %s into %s", task.repo, ref, dest)
     try:
-        response = requests.post(
-            url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT_SECONDS
+        subprocess.run(  # nosec B603 B607 - hardcoded git, args are dataset values, no shell
+            [
+                "git",
+                "clone",
+                "--branch",
+                ref,
+                "--depth",
+                "1",
+                task.repo,
+                str(dest),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=GIT_CLONE_TIMEOUT_SECONDS,
         )
-    except requests.RequestException:
-        logger.exception(
-            "Request to %s failed. Check that the server is running and reachable.", url
-        )
-        sys.exit(1)
-    elapsed = time.time() - start
+    except subprocess.TimeoutExpired as exc:
+        shutil.rmtree(parent, ignore_errors=True)
+        raise RuntimeError(f"git clone timed out for {task.repo} @ {ref}") from exc
+    except subprocess.CalledProcessError as exc:
+        shutil.rmtree(parent, ignore_errors=True)
+        raise RuntimeError(
+            f"git clone failed for {task.repo} @ {ref}: {exc.stderr.strip()[:500]}"
+        ) from exc
+    return dest
 
-    if response.status_code != 200:
-        logger.error(
-            "Error %s from %s: %s", response.status_code, url, response.text[:500]
-        )
-        sys.exit(1)
 
-    data = response.json()
-    usage = data.get("usage", {})
+def _build_prompt(task: Task, clone_path: Path, ref: str, model: str) -> str:
+    """Build the non-interactive /swe prompt for a task.
 
-    return {
-        "text": data["content"][0]["text"],
+    Includes the four keys the skill needs to enter non-interactive mode
+    (repo, problem, model, answers) plus the full problem statement and, when
+    present, the reference issue URL.
+
+    Args:
+        task: The task to run.
+        clone_path: Local path to the cloned repo.
+        ref: The git ref checked out.
+        model: The model name (also the artifact subfolder name).
+
+    Returns:
+        The prompt string to pass to `claude -p`.
+    """
+    answers = task.clarifying_answers or (
+        "No separate answers provided. Use your best judgment; all needed "
+        "information is in the task description below."
+    )
+    lines = [
+        f"/swe repo: {clone_path} problem: {task.id} model: {model} "
+        f'tag: {ref} answers: "{answers.strip()}"',
+        "",
+        "Task description:",
+        task.problem_statement or "(see reference issue)",
+    ]
+    if task.problem_issue_url:
+        lines += ["", f"Reference issue: {task.problem_issue_url}"]
+    return "\n".join(lines)
+
+
+def _build_env(config: RunnerConfig) -> dict[str, str]:
+    """Build the environment for the claude subprocess from the runner config.
+
+    Args:
+        config: The runner config.
+
+    Returns:
+        A copy of the current environment with routing overrides applied.
+    """
+    env = os.environ.copy()
+    env["ANTHROPIC_BASE_URL"] = config.endpoint
+    env["ANTHROPIC_API_KEY"] = config.api_key
+    env["CLAUDE_CODE_USE_BEDROCK"] = "0"
+    env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] = "1"
+    env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(config.max_output_tokens)
+    env["CLAUDE_CODE_SUBAGENT_MODEL"] = config.model
+    return env
+
+
+def _build_settings_arg(config: RunnerConfig) -> str:
+    """Build the value for `claude --settings`.
+
+    A settings file's ``env`` block takes precedence over process environment
+    variables, so relying on _build_env alone is not enough: a user's global
+    ``~/.claude/settings.json`` (e.g. one that pins CLAUDE_CODE_USE_BEDROCK=1)
+    would override our routing and the request would hit Bedrock, which rejects
+    the local model id with a 400. Passing --settings overrides that global
+    file, so we always supply one.
+
+    Uses the configured ``settings_file`` when set; otherwise synthesizes an
+    inline JSON settings object that pins routing at the config's endpoint.
+
+    Args:
+        config: The runner config.
+
+    Returns:
+        Either a settings file path or an inline JSON settings string.
+    """
+    if config.settings_file:
+        return str(REPO_ROOT / config.settings_file)
+    settings = {
+        # Claude Code requires a token source even against a local endpoint that
+        # ignores the value; without it the run fails with "Not logged in".
+        "apiKeyHelper": f"echo {config.api_key}",
+        "env": {
+            "CLAUDE_CODE_USE_BEDROCK": "0",
+            "ANTHROPIC_BASE_URL": config.endpoint,
+            "ANTHROPIC_API_KEY": config.api_key,
+            "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+            "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(config.max_output_tokens),
+            "CLAUDE_CODE_SUBAGENT_MODEL": config.model,
+        },
+    }
+    return json.dumps(settings)
+
+
+def _build_claude_cmd(config: RunnerConfig, prompt: str) -> list[str]:
+    """Assemble the `claude -p` argument vector from the runner config.
+
+    Args:
+        config: The runner config.
+        prompt: The /swe prompt to run.
+
+    Returns:
+        The command as a list of arguments (never a shell string).
+    """
+    return [
+        "claude",
+        "-p",
+        prompt,
+        "--model",
+        config.model,
+        "--output-format",
+        "json",
+        "--permission-mode",
+        config.permission_mode,
+        "--allowedTools",
+        ",".join(config.allowed_tools),
+        "--max-turns",
+        str(config.max_turns),
+        "--settings",
+        _build_settings_arg(config),
+    ]
+
+
+def _metrics_from_result(result: dict[str, Any], elapsed: float) -> dict[str, Any]:
+    """Extract the six benchmark metrics from a claude -p JSON result.
+
+    Args:
+        result: The parsed JSON result object from `claude -p`.
+        elapsed: Wall-clock seconds measured around the subprocess call.
+
+    Returns:
+        A metrics dictionary keyed by the dataset's metric names.
+    """
+    usage = result.get("usage") or {}
+    duration_ms = result.get("duration_ms")
+    latency = round(duration_ms / 1000, 1) if duration_ms else round(elapsed, 1)
+    is_error = result.get("is_error", False)
+    metrics = {
         "input_tokens": usage.get("input_tokens", 0),
         "output_tokens": usage.get("output_tokens", 0),
-        "latency_seconds": round(elapsed, 1),
-        "model": data.get("model", model),
+        "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+        "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),
+        "latency_seconds": latency,
+        "num_turns": result.get("num_turns", 0),
+        "total_cost_usd": result.get("total_cost_usd"),
+        "is_error": is_error,
+        "session_id": result.get("session_id"),
     }
+    # Capture the error message so failures are diagnosable from metrics.json
+    # without re-running the task by hand.
+    if is_error:
+        metrics["error"] = str(result.get("result", ""))[:1000]
+        metrics["api_error_status"] = result.get("api_error_status")
+    return metrics
 
 
-def _log_result(result: dict[str, Any]) -> None:
-    """Log token counts, latency, and generation rate for a response.
+def _run_claude(cmd: list[str], env: dict[str, str], timeout: int) -> dict[str, Any]:
+    """Run `claude -p` and parse its JSON result.
 
     Args:
-        result: The response dictionary returned by _send_request.
+        cmd: The command argument vector.
+        env: Environment for the subprocess.
+        timeout: Wall-clock timeout in seconds.
+
+    Returns:
+        The parsed JSON result object.
+
+    Raises:
+        RuntimeError: If claude times out, exits nonzero, or emits no JSON.
     """
-    logger.info("Response received")
-    logger.info("  Input tokens: %s", f"{result['input_tokens']:,}")
-    logger.info("  Output tokens: %s", f"{result['output_tokens']:,}")
-    logger.info("  Latency: %ss", result["latency_seconds"])
-    logger.info(
-        "  Generation: %.1f tok/s", result["output_tokens"] / result["latency_seconds"]
+    start = time.time()
+    try:
+        proc = subprocess.run(  # nosec B603 - hardcoded 'claude', list args, no shell
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"claude -p timed out after {timeout}s") from exc
+    elapsed = time.time() - start
+
+    if not proc.stdout.strip():
+        raise RuntimeError(
+            f"claude -p produced no output (exit {proc.returncode}): "
+            f"{proc.stderr.strip()[:500]}"
+        )
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"claude -p output was not JSON: {proc.stdout.strip()[:500]}"
+        ) from exc
+    result["_elapsed_seconds"] = round(elapsed, 1)
+    return result
+
+
+def _artifact_dir(config: RunnerConfig, task: Task) -> Path:
+    """Return the directory where /swe writes a task's artifacts.
+
+    Mirrors the skill's convention:
+    ``benchmarks/<output_dir>/<repo-name>/<task-id>/<model>/``.
+
+    Args:
+        config: The runner config.
+        task: The task being run.
+
+    Returns:
+        The absolute artifact directory path.
+    """
+    return (
+        REPO_ROOT
+        / "benchmarks"
+        / config.output_dir
+        / _repo_name(task.repo)
+        / task.id
+        / config.model
     )
 
 
-def _save_outputs(
-    result: dict[str, Any],
-    artifacts: dict[str, str],
-    args: argparse.Namespace,
-) -> None:
-    """Write parsed artifacts and run metrics to the output directory.
+def _save_metrics(
+    config: RunnerConfig, task: Task, ref: str, metrics: dict[str, Any]
+) -> Path:
+    """Write the run metrics to metrics.json in the artifact directory.
 
     Args:
-        result: The response dictionary returned by _send_request.
-        artifacts: Mapping of artifact filename to content.
-        args: Parsed command-line arguments.
+        config: The runner config.
+        task: The task that was run.
+        ref: The git ref used.
+        metrics: The metrics dictionary from _metrics_from_result.
+
+    Returns:
+        Path to the written metrics.json.
     """
-    output_dir = BENCH_DIR / args.problem / args.model
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    for filename, content in artifacts.items():
-        (output_dir / filename).write_text(content + "\n", encoding="utf-8")
-        logger.info("  Saved: %s", output_dir / filename)
-
-    metrics = {
-        "model": args.model,
-        "problem": args.problem,
-        "endpoint": args.endpoint,
-        "input_tokens": result["input_tokens"],
-        "output_tokens": result["output_tokens"],
-        "latency_seconds": result["latency_seconds"],
-        "generation_tokens_per_sec": round(
-            result["output_tokens"] / result["latency_seconds"], 1
+    out_dir = _artifact_dir(config, task)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    produced = [f for f in ARTIFACT_FILENAMES if (out_dir / f).exists()]
+    latency = metrics["latency_seconds"] or 0
+    record = {
+        "task": task.id,
+        "repo": task.repo,
+        "ref": ref,
+        "complexity": task.complexity,
+        "tags": task.tags,
+        "model": config.model,
+        "endpoint": config.endpoint,
+        "artifacts_produced": len(produced),
+        "artifacts_expected": len(ARTIFACT_FILENAMES),
+        "generation_tokens_per_sec": (
+            round(metrics["output_tokens"] / latency, 1) if latency > 0 else 0
         ),
-        "artifacts_produced": len(artifacts),
-        "max_tokens": args.max_tokens,
+        **metrics,
     }
-    (output_dir / "metrics.json").write_text(
-        json.dumps(metrics, indent=2) + "\n", encoding="utf-8"
-    )
-    logger.info("  Saved: %s", output_dir / "metrics.json")
+    path = out_dir / "metrics.json"
+    path.write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
+    return path
 
 
-def _run(args: argparse.Namespace) -> None:
-    """Build the prompt, run the request, and persist the outputs.
+def _run_task(config: RunnerConfig, dataset: Dataset, task: Task) -> dict[str, Any]:
+    """Run a single task end to end and return its outcome summary.
 
     Args:
-        args: Parsed command-line arguments.
+        config: The runner config.
+        dataset: The loaded dataset (for default-ref resolution).
+        task: The task to run.
+
+    Returns:
+        A summary dict: task id, ok flag, artifacts produced, and metrics.
     """
-    logger.info("Problem: %s", args.problem)
-    logger.info("Model: %s", args.model)
-    logger.info("Endpoint: %s", args.endpoint)
-    logger.info("Max tokens: %s", args.max_tokens)
+    ref = dataset.resolved_ref(task)
+    logger.info("=== Task: %s [%s] ref=%s ===", task.id, task.complexity, ref)
 
-    prompt = _build_prompt(args.problem)
-    logger.info("Prompt length: %s chars (~%s tokens)", len(prompt), len(prompt) // 4)
+    clone_path = _clone_repo(task, ref, config.clone_dir)
+    clone_parent = clone_path.parent
+    try:
+        prompt = _build_prompt(task, clone_path, ref, config.model)
+        cmd = _build_claude_cmd(config, prompt)
+        env = _build_env(config)
+        logger.info("  Running claude -p (max_turns=%s)...", config.max_turns)
+        result = _run_claude(cmd, env, config.timeout_seconds)
+        metrics = _metrics_from_result(result, result.get("_elapsed_seconds", 0))
+    finally:
+        shutil.rmtree(clone_parent, ignore_errors=True)
 
-    if args.dry_run:
-        print("\n--- PROMPT ---")
+    metrics_path = _save_metrics(config, task, ref, metrics)
+    out_dir = metrics_path.parent
+    produced = [f for f in ARTIFACT_FILENAMES if (out_dir / f).exists()]
+    ok = len(produced) == len(ARTIFACT_FILENAMES) and not metrics["is_error"]
+
+    logger.info(
+        "  %s: %s/%s artifacts, %s turns, %s in / %s out tokens, %ss",
+        "OK" if ok else "INCOMPLETE",
+        len(produced),
+        len(ARTIFACT_FILENAMES),
+        metrics["num_turns"],
+        f"{metrics['input_tokens']:,}",
+        f"{metrics['output_tokens']:,}",
+        metrics["latency_seconds"],
+    )
+    if metrics["is_error"]:
+        logger.error(
+            "  claude -p reported an error (status %s): %s",
+            metrics.get("api_error_status"),
+            metrics.get("error"),
+        )
+    logger.info("  Metrics: %s", metrics_path)
+    return {"task": task.id, "ok": ok, "artifacts": len(produced), "metrics": metrics}
+
+
+def _select_tasks(dataset: Dataset, task_ids: list[str]) -> list[Task]:
+    """Select tasks to run, preserving dataset order.
+
+    Args:
+        dataset: The loaded dataset.
+        task_ids: Task ids to run; empty means all tasks.
+
+    Returns:
+        The tasks to run.
+
+    Raises:
+        DatasetError: If a requested id is not in the dataset.
+    """
+    if not task_ids:
+        return dataset.tasks
+    known = {t.id for t in dataset.tasks}
+    missing = [tid for tid in task_ids if tid not in known]
+    if missing:
+        raise DatasetError(f"Unknown task ids: {missing}. Available: {sorted(known)}")
+    return [t for t in dataset.tasks if t.id in set(task_ids)]
+
+
+def _dry_run(config: RunnerConfig, dataset: Dataset, tasks: list[Task]) -> None:
+    """Print the prompt and command for each task without executing anything."""
+    for task in tasks:
+        ref = dataset.resolved_ref(task)
+        placeholder = Path(config.clone_dir) / "<tmp>" / _repo_name(task.repo)
+        prompt = _build_prompt(task, placeholder, ref, config.model)
+        cmd = _build_claude_cmd(config, prompt)
+        print(f"\n=== {task.id} [{task.complexity}] ref={ref} ===")
+        print("PROMPT:")
         print(prompt)
-        return
+        print("\nCOMMAND:")
+        print(" ".join(cmd))
 
-    logger.info("Sending request...")
-    result = _send_request(args.endpoint, args.model, prompt, args.max_tokens)
-    _log_result(result)
 
-    artifacts = _parse_artifacts(result["text"])
-    logger.info("  Artifacts parsed: %s", list(artifacts.keys()))
+def _run(config: RunnerConfig, dataset: Dataset, tasks: list[Task]) -> None:
+    """Run every selected task and log a final pass/fail summary."""
+    logger.info(
+        "Running %s task(s) with model=%s against %s",
+        len(tasks),
+        config.model,
+        config.endpoint,
+    )
+    summaries = []
+    for task in tasks:
+        try:
+            summaries.append(_run_task(config, dataset, task))
+        except RuntimeError:
+            logger.exception("Task %s failed", task.id)
+            summaries.append({"task": task.id, "ok": False, "artifacts": 0})
 
-    if len(artifacts) < EXPECTED_ARTIFACT_COUNT:
-        logger.warning(
-            "Only %s/%s artifacts found. Response may be truncated.",
-            len(artifacts),
-            EXPECTED_ARTIFACT_COUNT,
-        )
-        logger.warning("Try increasing --max-tokens (currently %s)", args.max_tokens)
-
-    _save_outputs(result, artifacts, args)
-
-    if len(artifacts) == EXPECTED_ARTIFACT_COUNT:
-        logger.info("Done - all %s artifacts produced.", EXPECTED_ARTIFACT_COUNT)
-    else:
-        logger.warning(
-            "Partial - %s/%s artifacts. Increase --max-tokens or check the response.",
-            len(artifacts),
-            EXPECTED_ARTIFACT_COUNT,
-        )
+    passed = sum(1 for s in summaries if s["ok"])
+    logger.info("=" * 60)
+    logger.info("Done: %s/%s tasks produced all artifacts.", passed, len(summaries))
+    for s in summaries:
+        logger.info("  %s %s (%s artifacts)", "OK " if s["ok"] else "FAIL", s["task"], s["artifacts"])
 
 
 def _parse_args() -> argparse.Namespace:
     """Parse command-line arguments.
 
-    Returns:
-        The parsed argument namespace.
+    CLI flags override the corresponding runner-config fields.
     """
-    parser = argparse.ArgumentParser(description="Run SWE benchmark headless")
-    parser.add_argument(
-        "--endpoint", required=True, help="API endpoint (e.g. http://127.0.0.1:4000)"
+    parser = argparse.ArgumentParser(
+        description="Run the SWE benchmark headless via claude -p and the /swe skill.",
+        epilog=(
+            "Examples:\n"
+            "  uv run scripts/run-swe-headless.py --config config/runner.example.yaml\n"
+            "  uv run scripts/run-swe-headless.py --config config/runner.example.yaml "
+            "--model qwen3-coder-30b --tasks remove-faiss,remove-efs-from-terraform-aws-ecs\n"
+            "  uv run scripts/run-swe-headless.py --config config/runner.example.yaml --dry-run"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--model", required=True, help="Model name")
+    parser.add_argument("--config", help="Path to the runner config YAML file")
+    parser.add_argument("--endpoint", help="Override: API endpoint base URL")
+    parser.add_argument("--model", help="Override: model name")
+    parser.add_argument("--dataset", help="Override: dataset YAML path")
     parser.add_argument(
-        "--problem", required=True, choices=list(PROBLEMS.keys()), help="Problem slug"
+        "--tasks", help="Override: comma-separated task ids to run (default: all)"
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Max output tokens"
+        "--max-turns", type=int, help="Override: cap on the agent loop"
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Print prompt without sending"
+        "--dry-run", action="store_true", help="Print prompts/commands without running"
     )
     return parser.parse_args()
 
 
 def main() -> None:
-    """Parse arguments and delegate to the run orchestrator."""
+    """Parse arguments, load config and dataset, and run the benchmark."""
     args = _parse_args()
-    _run(args)
+    overrides: dict[str, Any] = {
+        "endpoint": args.endpoint,
+        "model": args.model,
+        "dataset": args.dataset,
+        "max_turns": args.max_turns,
+    }
+    if args.tasks:
+        overrides["tasks"] = [t.strip() for t in args.tasks.split(",") if t.strip()]
+
+    try:
+        config = load_runner_config(args.config, overrides)
+    except RunnerConfigError as exc:
+        logger.error("Config error: %s", exc)
+        sys.exit(1)
+
+    dataset_path = config.dataset
+    if not Path(dataset_path).is_absolute():
+        dataset_path = str(Path(__file__).resolve().parent.parent / dataset_path)
+    try:
+        dataset = load_dataset(dataset_path)
+        tasks = _select_tasks(dataset, config.tasks)
+    except DatasetError as exc:
+        logger.error("Dataset error: %s", exc)
+        sys.exit(1)
+
+    if args.dry_run:
+        _dry_run(config, dataset, tasks)
+        return
+    _run(config, dataset, tasks)
 
 
 if __name__ == "__main__":

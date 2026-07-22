@@ -28,9 +28,11 @@ Example:
 /swe repo: benchmarks/swe-benchmark-data/mcp-gateway-registry/repo problem: ssrf-hardening-outbound-url-validation model: kimi-k2.7-code tag: 1.24.4 answers: "1. Security audit finding — the registry fetches user-supplied URLs with no SSRF guard. 2. Operators and downstream teams. 3. Python/FastAPI, ECS, no deadline, backwards-compatible. 4. Medium."
 ```
 
+The `repo:` path may be a checkout the caller already cloned (including a temporary directory such as one under `/tmp`) or a path that does not exist yet. If it does not exist, clone it at `tag:` per Step 1.4 without asking. Either way, `{repo-name}` is the basename of the `repo:` path.
+
 **When non-interactive mode is triggered:**
 - Do NOT ask for model confirmation — use the `model:` parameter directly
-- Do NOT ask for the GitHub URL — derive `{repo-name}` from the local `repo:` path
+- Do NOT ask for the GitHub URL — derive `{repo-name}` from the `repo:` path basename; if the path is missing, clone at `tag:` (Step 1.4) without prompting
 - Do NOT ask for tag confirmation — use the `tag:` parameter
 - Do NOT ask for task confirmation — use the `problem:` parameter as-is
 - Do NOT ask clarifying questions (1.5) — parse answers from the `answers:` parameter
@@ -119,14 +121,14 @@ Once the user confirms the task wording, derive a kebab-case `{problem-name}` fr
 
 ### 1.4 Locate or Clone the Target Repository
 
-Now that `{repo-name}`, `{ref}`, and `{problem-name}` are settled, resolve paths. All paths are expressed relative to the repository root via `git rev-parse --show-toplevel` - never hardcode absolute paths. Let:
+Now that `{repo-name}`, `{ref}`, and `{problem-name}` are settled, resolve the source checkout. Artifacts always land under the fixed benchmark output path (see Step 3); the *source clone* location, however, is flexible - the target repo is read-only input and may live either inside the benchmark tree or in a temporary directory. All benchmark-tree paths are expressed relative to the repository root via `git rev-parse --show-toplevel` - never hardcode absolute paths under it. Let:
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 BENCH_DIR="$REPO_ROOT/benchmarks/swe-benchmark-data"
 ```
 
-1. **Check locally first.** Look for the cloned source at `$BENCH_DIR/{repo-name}/repo/`. If it exists and is a valid git checkout, confirm the ref:
+1. **Check for an existing local checkout first.** Look for cloned source at `$BENCH_DIR/{repo-name}/repo/`. If it exists and is a valid git checkout, confirm the ref:
 
    ```bash
    git -C "$BENCH_DIR/{repo-name}/repo" describe --tags --exact-match  # for tags
@@ -136,17 +138,16 @@ BENCH_DIR="$REPO_ROOT/benchmarks/swe-benchmark-data"
 
    If the local checkout is at the wrong ref, tell the user and ask whether to re-clone (Option A: delete `repo/` and re-clone at `{ref}`) or keep the existing checkout.
 
-2. **If the path does not exist, announce the clone command and ask for approval before running it.** Use `$BENCH_DIR` (not an absolute path):
+2. **If no checkout exists, clone the repo yourself at `{ref}`.** The source is read-only input, so clone it wherever is convenient - you do NOT need to place it inside the benchmark tree, and you may clone into a temporary directory such as `/tmp`. A shallow clone at the exact ref is sufficient:
 
-   > I will run the following clone command. Approve to proceed?
-   > ```
-   > REPO_ROOT="$(git rev-parse --show-toplevel)"
-   > BENCH_DIR="$REPO_ROOT/benchmarks/swe-benchmark-data"
-   > mkdir -p "$BENCH_DIR/{repo-name}"
-   > git -C "$BENCH_DIR/{repo-name}" clone --branch {ref} --depth 1 {url} repo
-   > ```
+   ```bash
+   CLONE_DIR="$(mktemp -d /tmp/swe-{repo-name}-XXXXXX)"
+   git clone --branch {ref} --depth 1 {url} "$CLONE_DIR"
+   ```
 
-   Only run the clone after the user approves. After cloning, append a row to the benchmark README's "Benchmark Repositories" section if one is not already there (URL, ref, local path, artifact path).
+   In **interactive** mode, announce the clone command and wait for approval before running it. In **non-interactive mode** (see "Non-Interactive Mode (Headless)" above), clone directly without asking - a shallow read-only clone into a temp dir needs no confirmation. Record the resulting checkout path as `{repo-path}` and use it as the sole code source for the rest of the run.
+
+   A `/tmp` clone is disposable and never committed; you do not need to clean it up, but you may. When you clone into `$BENCH_DIR/{repo-name}/repo/` instead, that path is gitignored so it is never committed either. Do not modify the checkout in any location.
 
 ### 1.5 Remaining Clarifying Questions
 
@@ -194,7 +195,7 @@ benchmarks/
 Conventions:
 
 - Use kebab-case for `{repo-name}` and match the upstream repository name (e.g. `mcp-gateway-registry`). The list of supported `{repo-name}` values, their upstream URLs, and the tag to clone are all defined in `benchmarks/swe-benchmark-data/README.md`.
-- Source code for the target lives at `benchmarks/swe-benchmark-data/{repo-name}/repo/`. If that path does not exist, stop and direct the user to the setup instructions in the benchmark README - do not run `/swe` against a repo that has not been cloned.
+- Source code for the target lives at the checkout resolved in Step 1.4 (`{repo-path}`): either `benchmarks/swe-benchmark-data/{repo-name}/repo/` or a temporary clone such as one under `/tmp`. If no checkout exists yet, clone it at `{ref}` per Step 1.4 rather than stopping.
 - Use kebab-case for `{problem-name}` (e.g. `remove-faiss`, `remove-efs-from-terraform-aws-ecs`). Prefer the exact name listed in the benchmark README's task table.
 - Use kebab-case for `{model-name}` and prefer the canonical model id (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`, `gpt-5`).
 - The same `{repo-name}/{problem-name}` folder will accumulate one subfolder per model that has attempted it - do not delete sibling model folders.
@@ -748,7 +749,7 @@ This skill is a benchmark. Each model run must be completely independent so arti
 - **Do NOT read any files under `benchmarks/swe-benchmark-data/{repo-name}/{problem-name}/`** other than the model's own target folder. Sibling model folders (e.g. `claude-opus-4-8/`, `kimi-k2-thinking/`, etc.) contain artifacts from other benchmark runs — reading them contaminates the benchmark.
 - **Do NOT read `benchmarks/swe-benchmark-data/README.md`** during analysis. The task description in this `/swe` invocation is the only allowed input from the benchmark directory.
 - **Do NOT use the `claude-peers` MCP tool** (`mcp__claude-peers__*`) to message, list, or coordinate with other Claude Code sessions during a `/swe` run. Each session must produce its design independently.
-- **The only allowed code source** is the cloned target repo at `benchmarks/swe-benchmark-data/{repo-name}/repo/`. Read that thoroughly; ignore everything else under `benchmarks/`.
+- **The only allowed code source** is the cloned target repo at `{repo-path}` (either `benchmarks/swe-benchmark-data/{repo-name}/repo/` or a temp clone such as one under `/tmp`, as resolved in Step 1.4). Read that thoroughly; ignore everything else under `benchmarks/`.
 
 If the user explicitly asks you to compare with prior runs after artifacts are written, that is a separate request — done after the four artifacts are saved, not during their production.
 

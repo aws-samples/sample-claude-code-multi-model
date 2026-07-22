@@ -1,0 +1,72 @@
+# =============================================================================
+# SWE benchmark runner config
+# =============================================================================
+#
+# Supplies the run-time parameters for the headless harness
+# (scripts/run-swe-headless.py). The harness loads this file, then drives
+# `claude -p /swe ...` once per dataset task, capturing token/latency/turn
+# metrics from each run's JSON result.
+#
+# Every field below can be overridden on the command line; CLI flags always
+# win over the file. Copy this file, edit it for your endpoint/model, and pass
+# it with --config.
+#
+# -----------------------------------------------------------------------------
+# Fields
+# -----------------------------------------------------------------------------
+#   endpoint          str   Base URL of the OpenAI/Anthropic-compatible endpoint
+#                           the model is served on (e.g. a local vLLM server).
+#   model             str   Model name/id passed to `claude --model` and used as
+#                           the {model-name} artifact subfolder.
+#   api_key           str   API key sent to the endpoint. Local servers ignore
+#                           the value; keep a placeholder like "local".
+#   dataset           str   Path to the benchmark dataset YAML file.
+#   output_dir        str   Directory (relative to the repo root) where the /swe
+#                           skill writes artifacts.
+#   clone_dir         str   Parent directory for per-task temporary repo clones.
+#                           Each task clones into a fresh mkdtemp subdirectory.
+#   tasks             list  Task ids to run. Omit or leave empty to run them all.
+#   permission_mode   str   claude -p permission mode: default | acceptEdits |
+#                           plan. bypassPermissions is intentionally NOT allowed.
+#   allowed_tools     list  Tools claude -p may use without prompting. Kept
+#                           narrow: read the repo, write the four artifacts.
+#   max_turns         int   Cap on the agent loop (claude --max-turns).
+#   max_output_tokens int   Per-response output-token cap for the model.
+#   timeout_seconds   int   Wall-clock timeout for a single task's claude -p run.
+#   settings_file     str   Optional claude --settings JSON (e.g. the vLLM
+#                           config that pins ANTHROPIC_BASE_URL). Optional.
+# =============================================================================
+
+endpoint: http://127.0.0.1:8000
+model: qwen3.6-35b
+api_key: local
+
+dataset: dataset/mcp-gateway-registry.yaml
+output_dir: swe-benchmark-data
+clone_dir: /tmp
+
+# Run every task in the dataset. To run a subset, list task ids, e.g.:
+# tasks:
+#   - remove-faiss
+#   - ssrf-hardening-outbound-url-validation
+tasks: []
+
+permission_mode: acceptEdits
+allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Write
+  - Edit
+  - Bash(git clone*)
+  - Bash(git -C*)
+  - Bash(mktemp*)
+  - Task
+max_turns: 60
+max_output_tokens: 16000
+timeout_seconds: 1800
+
+# Point claude -p at the local vLLM server's Claude Code settings. Relative to
+# the repo root. Uncomment to use it; leave commented to rely on the
+# endpoint/api_key fields above.
+# settings_file: self-hosted/vllm/config/claude-code.json
