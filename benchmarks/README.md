@@ -212,6 +212,42 @@ cd benchmarks
 
 Before running against a live endpoint, make sure the model is served and reachable at the config's `endpoint` (for the vLLM path, see [self-hosted/vllm/README.md](../self-hosted/vllm/README.md)).
 
+### The metrics file
+
+Alongside the four artifacts, each run writes a `metrics.json` capturing what the run cost and whether it produced everything expected. Here is a real example from the hello-world sanity run:
+
+```json
+{
+  "task": "add-contributing-guide",
+  "repo": "https://github.com/octocat/Hello-World",
+  "ref": "master",
+  "complexity": "low",
+  "tags": [
+    "sanity-check",
+    "docs",
+    "hello-world"
+  ],
+  "model": "qwen3.6-35b",
+  "endpoint": "http://127.0.0.1:8000",
+  "artifacts_produced": 4,
+  "artifacts_expected": 4,
+  "generation_tokens_per_sec": 124.0,
+  "input_tokens": 364184,
+  "output_tokens": 9388,
+  "cache_read_tokens": 0,
+  "cache_creation_tokens": 0,
+  "latency_seconds": 75.7,
+  "num_turns": 17,
+  "total_cost_usd": 2.058595,
+  "is_error": false,
+  "session_id": "78df4f2a-6598-4add-a253-287354c207bd"
+}
+```
+
+Because the file records the task, model, and endpoint next to the token, latency, throughput, and turn-count numbers, the same task can be run against many models and the resulting `metrics.json` files compared side by side -- so you can see how each model differs in cost, speed, and how many turns it took to produce the artifacts. On a failed run the file also carries an `error` string and `api_error_status`, so a failure is diagnosable without re-running the task.
+
+These metrics measure the *cost* of a run, not the *quality* of what it produced. A forthcoming eval skill will score the generated artifacts (against the dataset's `ground_truth`) and add those scoring results to this same `metrics.json`, so a single file will hold both what a run cost and how good its output was -- the basis for ranking models on the benchmark.
+
 ## Development workflow
 
 Run these from the `benchmarks/` directory before committing:
