@@ -151,7 +151,7 @@ Summarize:
 - opencode status (installed?, provider wired, verified)
 - how to monitor: `nvtop`, `~/vllm-env/bin/gpustat -i 1`
 - how to stop: `./vllm-serve.sh --stop`
-- how to reach it from a laptop: SSH tunnel (point at `../ollama/scripts/tunnel.sh` with `LOCAL_MODEL_PORT=8000`)
+- how to reach it from a laptop: SSH tunnel (`scripts/tunnel.sh` with `LOCAL_MODEL_PORT=8000`)
 
 ---
 

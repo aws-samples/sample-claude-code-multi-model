@@ -6,7 +6,7 @@
 
 Serve open-weight coding models (Qwen3-Coder-30B, Qwen3-32B, and larger) on a single multi-GPU EC2 node with [vLLM](https://docs.vllm.ai), sharded across all GPUs with tensor parallelism. This is the serving layer the [hosting-strategy experiment](../../README.md) is built on: vLLM sustains high throughput under concurrent load, which is the regime where a fixed-cost GPU node beats per-token API pricing.
 
-The sibling [../ollama/](../ollama/) path is the *convenience* path — one model, single-stream, minimal setup. **This vLLM path is the *throughput* path** — many concurrent requests, tensor parallelism, the batched tokens/sec the cost model needs.
+**This vLLM path is the *throughput* path** — many concurrent requests, tensor parallelism, the batched tokens/sec the cost model needs.
 
 > **TL;DR — don't copy-paste, run the skill.** The install is heavy (driver-level checks, apt packages, a multi-GB vLLM wheel, a ~57 GB model download, and two environment fixes that are specific to the Deep Learning AMI). Rather than paste the steps below by hand, run the repo skill and it drives the whole thing:
 > 
@@ -382,7 +382,7 @@ Each is explained in detail below.
 
 vLLM splits every weight matrix *across* the 4 GPUs, so each card holds ¼ of the model and every GPU participates in every token. This is what lets a 61 GB (or 160 GB) model serve at all on 46 GB cards, and it keeps all four GPUs busy rather than idle-in-a-pipeline.
 
-- **vs. Ollama's pipeline split:** Ollama assigns whole *layers* to different GPUs (pipeline parallelism), so at low concurrency only one GPU is active at a time. Tensor parallelism activates all GPUs per token → higher throughput under load. This is the core reason the vLLM path exists.
+- **vs. pipeline-parallel splits:** pipeline parallelism assigns whole *layers* to different GPUs, so at low concurrency only one GPU is active at a time. Tensor parallelism activates all GPUs per token → higher throughput under load. This is the core reason the vLLM path exists.
 - **Data parallelism** (running N independent model replicas) is *not* used here: one 30B replica already fits with room to spare, and a single replica with a big KV cache maximizes concurrency per model copy. Data parallelism becomes relevant only for very small models where several replicas fit.
 
 On this node vLLM auto-selects the `PYNCCL` all-reduce backend for the 4-GPU group (custom all-reduce is disabled because the L40S GPUs are PCIe-only, not NVLink — expected on G6e).
@@ -468,13 +468,13 @@ Under load you should see all four L40S climb in utilization together (tensor pa
 
 ## Connect a client (SSH tunnel)
 
-The server binds to `127.0.0.1` only. Reach it from your laptop exactly like the Ollama path — an SSH tunnel, no public ingress:
+The server binds to `127.0.0.1` only. Reach it from your laptop with an SSH tunnel, no public ingress:
 
 ```bash
 # on your laptop
 export G6E_IP=<instance-public-ip>
 export G6E_KEY=~/.ssh/<your-key>.pem
-LOCAL_MODEL_PORT=8000 ../ollama/scripts/tunnel.sh start   # forwards localhost:8000 → EC2:8000
+LOCAL_MODEL_PORT=8000 scripts/tunnel.sh start   # forwards localhost:8000 → EC2:8000
 ```
 
 Then point any compatible client at `http://localhost:8000/v1`.
@@ -565,5 +565,4 @@ aws ec2 terminate-instances --instance-ids <id>           # destroy
 
 ## See also
 
-- [../ollama/README.md](../ollama/README.md) — the single-GPU convenience path
 - [../../README.md](../../README.md) — the multi-model project and the cost/quality experiment

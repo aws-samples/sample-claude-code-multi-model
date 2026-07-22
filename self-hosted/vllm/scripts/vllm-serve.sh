@@ -7,8 +7,8 @@ set -euo pipefail
 #
 # vLLM shards the model across all GPUs with tensor parallelism
 # (--tensor-parallel-size), so a 30B–80B model that will not fit on one L40S
-# (46 GB) serves comfortably across four. Unlike Ollama's pipeline split,
-# tensor parallelism keeps every GPU busy on every token and sustains high
+# (46 GB) serves comfortably across four. Tensor parallelism keeps every GPU
+# busy on every token and sustains high
 # throughput under concurrent load — the regime the cost model in the strategy
 # doc depends on.
 #
@@ -69,7 +69,7 @@ set -euo pipefail
 # server. Run `vllm serve --help` for the full parser list.
 #
 # The server binds to 127.0.0.1 only. Reach it from your laptop with an SSH
-# tunnel (see tunnel.sh), exactly like the Ollama path — no public ingress.
+# tunnel (see tunnel.sh) — no public ingress.
 # ---------------------------------------------------------------------------
 
 MODEL="${MODEL:-Qwen/Qwen3-Coder-30B-A3B-Instruct}"

@@ -22,10 +22,10 @@ aws-bedrock-token-generator (Amazon Web Services)
   License: Apache-2.0
   https://pypi.org/project/aws-bedrock-token-generator/
 
-Ollama
-  Optional runtime for self-hosting open-source models on EC2 (self-hosted path).
-  License: MIT
-  https://github.com/ollama/ollama
+vLLM
+  Inference server for self-hosting open-weight models on EC2 (self-hosted path).
+  License: Apache-2.0
+  https://github.com/vllm-project/vllm
 
 FastAPI
   License: MIT

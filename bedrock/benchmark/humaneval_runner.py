@@ -137,7 +137,7 @@ def run_claude_code(task, model):
 
     env = os.environ.copy()
     # Use a clean Claude config dir so any user-level settings.json (which may
-    # pin ANTHROPIC_BASE_URL to a local Ollama, CLAUDE_CODE_USE_BEDROCK=0, etc.)
+    # pin ANTHROPIC_BASE_URL to a local vLLM server, CLAUDE_CODE_USE_BEDROCK=0, etc.)
     # does NOT override the per-model routing below.
     env["CLAUDE_CONFIG_DIR"] = _get_clean_config_dir()
     # Drop any inherited overrides that would hijack routing.

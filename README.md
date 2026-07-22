@@ -42,13 +42,14 @@ Native Anthropic models on Bedrock skip the proxy and go direct. Best for model
 variety with zero infrastructure to manage.
 
 **Path 2 — Self-hosted on EC2 (your VPC, fixed GPU cost).** Claude Code points
-at an [Ollama](https://ollama.com/) server running on an EC2 GPU instance, reached
-through an SSH tunnel that forwards `localhost:11434` to the EC2 instance. Ollama
-accepts Anthropic-Messages requests natively, so no proxy or format translation is
-needed — the SSH tunnel itself is the entire "bridge." No public ingress, no API
-keys on the wire. Best for data sovereignty (tokens never leave your AWS account),
-air-gapped or compliance-sensitive environments, and high-volume workloads where
-the fixed hourly GPU cost beats per-token Bedrock pricing.
+at a [vLLM](https://docs.vllm.ai) server running on an EC2 GPU instance, reached
+through an SSH tunnel that forwards `localhost:8000` to the EC2 instance. vLLM
+shards the model across all GPUs with tensor parallelism and serves it behind an
+OpenAI-compatible API that Claude Code reaches directly over the tunnel — no
+public ingress, no API keys on the wire. Best for data sovereignty (tokens never
+leave your AWS account), air-gapped or compliance-sensitive environments, and
+high-volume workloads where the fixed hourly GPU cost beats per-token Bedrock
+pricing.
 
 The two paths share the same `/swe` and HumanEval evaluation harnesses, so quality
 and cost numbers are directly comparable. They differ only in where the model
@@ -57,7 +58,7 @@ runs and how Claude Code reaches it.
 | Path | Models | Cost Model | Best For |
 |------|--------|------------|----------|
 | [**Bedrock**](bedrock/) | 45 models from 11 providers | Pay-per-token | Model variety, zero infrastructure |
-| [**Self-Hosted (EC2)**](self-hosted/) | Any Ollama/vLLM model | Fixed hourly GPU cost | Data sovereignty, air-gapped, unlimited tokens |
+| [**Self-Hosted (EC2)**](self-hosted/) | Any open-weight model on vLLM | Fixed hourly GPU cost | Data sovereignty, air-gapped, unlimited tokens |
 
 ### How it measures the models
 
@@ -77,8 +78,8 @@ you're trying to answer:
 
 **What you get end to end:**
 
-- Run Claude Code with **45 Bedrock models** (7 native Anthropic + 38 third-party) on the managed path, **or** any open-source model you self-host on an EC2 GPU instance (Ollama / vLLM)
-- A one-command **LiteLLM proxy** for the Bedrock path that handles Anthropic↔OpenAI translation, tool calling, and streaming (the self-hosted path uses Ollama directly via SSH tunnel, no proxy)
+- Run Claude Code with **45 Bedrock models** (7 native Anthropic + 38 third-party) on the managed path, **or** any open-weight model you self-host on an EC2 GPU instance with vLLM
+- A one-command **LiteLLM proxy** for the Bedrock path that handles Anthropic↔OpenAI translation, tool calling, and streaming (the self-hosted path reaches vLLM directly via SSH tunnel, no proxy)
 - An interactive **model picker** and per-model launch scripts
 - A **`/swe` skill** for repo-grounded SWE benchmarking, plus a **`/summarize`** skill for after-action reporting (token usage, errors, themes per run)
 - A reproducible **HumanEval benchmark** with cross-model pass@1 + per-token-cost numbers
@@ -146,10 +147,10 @@ calling and streaming natively — no per-model configuration needed.
 
 ```mermaid
 flowchart TD
-    CC["Claude Code CLI<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:11434"]
-    EC2["EC2 GPU instance<br/>Ollama (Anthropic Messages compatible)<br/>open-source model"]
+    CC["Claude Code CLI<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:8000"]
+    EC2["EC2 GPU instance<br/>vLLM (tensor-parallel, OpenAI-compatible)<br/>open-weight model"]
 
-    CC -- "SSH tunnel<br/>localhost:11434 → EC2:11434" --> EC2
+    CC -- "SSH tunnel<br/>localhost:8000 → EC2:8000" --> EC2
 
     classDef agent fill:#E5E7EB,stroke:#6B7280,color:#111827
     classDef ec2 fill:#FFF3E0,stroke:#FF9900,color:#1F2937
@@ -158,7 +159,7 @@ flowchart TD
 ```
 
 Claude Code is pointed at `localhost`; the SSH tunnel transparently forwards
-every request to Ollama on the EC2 instance. No public ingress, no API keys
+every request to vLLM on the EC2 instance. No public ingress, no API keys
 — the only network path in is SSH.
 
 ## Why this repo exists, briefly
@@ -353,8 +354,8 @@ Pick a path that matches what you're trying to do.
 
 - **[bedrock/README.md](bedrock/README.md)** — Bedrock path. Start the LiteLLM
   proxy and run Claude Code against any of the 45 models with `claude-model.sh`.
-- **[self-hosted/README.md](self-hosted/README.md)** — Self-hosted path. Provision
-  a GPU instance, install Ollama, open an SSH tunnel, and run Claude Code against
+- **[self-hosted/vllm/README.md](self-hosted/vllm/README.md)** — Self-hosted path. Provision
+  a GPU instance, install vLLM, open an SSH tunnel, and run Claude Code against
   a model in your VPC.
 
 **Want to benchmark a model on a real repo task?**
@@ -374,7 +375,7 @@ Pick a path that matches what you're trying to do.
 
 | | Bedrock | Self-Hosted (EC2) |
 |---|---|---|
-| **Models** | 45 from 11 providers | Any GGUF/HF model |
+| **Models** | 45 from 11 providers | Any open-weight (Hugging Face) model |
 | **Pricing** | Per-token ($0.15-$15/M) | Per-hour ($0.84-$4.60/hr GPU) |
 | **Setup time** | 5 minutes | 15-20 minutes |
 | **Latency** | Varies by model (a few sec to minutes/task) | Depends on GPU + model size |
@@ -416,11 +417,15 @@ claude-code-multi-model/
 │   ├── scripts/               setup-proxy.sh, claude-model.sh, mantle-token.sh
 │   ├── config/                litellm-config.yaml, claude-proxy-settings.json
 │   └── benchmark/             HumanEval runner (humaneval_runner.py) + pass@1 results
-└── self-hosted/               ← EC2 self-hosted path (Ollama/vLLM)
-    ├── README.md              Full EC2 setup guide
-    ├── SETUP-GUIDE.md         Step-by-step GPU instance provisioning
-    ├── scripts/               ec2-setup.sh, claude-local.sh, tunnel.sh, bench.sh
-    └── config/                settings.template.json
+└── self-hosted/               ← EC2 self-hosted path (vLLM)
+    └── vllm/
+        ├── README.md          Full EC2 + vLLM setup guide
+        ├── pyproject.toml     uv-managed deps for the Python clients
+        ├── models/            Per-model serving guidelines (one .md per model)
+        ├── scripts/           vllm-install.sh, vllm-serve.sh, vllm-verify.sh, vllm-metrics.sh, claude-local.sh, tunnel.sh, opencode-setup.sh
+        ├── clients/           hello_inference.py, benchmark_inference.py, collect_metrics.py, build_dashboard.py
+        ├── tests/             unittest suite for the clients
+        └── config/            opencode.json
 ```
 
 ## See Also

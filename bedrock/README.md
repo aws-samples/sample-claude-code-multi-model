@@ -371,7 +371,7 @@ alias cc-kimi="$CC_PROXY claude --settings ~/sample-claude-code-multi-model/bedr
 
 ## See Also
 
-- **[Claude Code on Amazon EC2](../self-hosted/README.md)** — Run Claude Code backed by a self-hosted open-source model (Ollama + Qwen 3.5) on an EC2 GPU instance. Fixed hourly cost, data stays in your VPC.
+- **[Claude Code on Amazon EC2](../self-hosted/vllm/README.md)** — Run Claude Code backed by a self-hosted open-weight model (vLLM + Qwen) on an EC2 GPU instance. Fixed hourly cost, data stays in your VPC.
 
 ## License
 
