@@ -22,8 +22,8 @@ They are large, generated, or irrelevant to code changes — walking them wastes
 
 When a task is unscoped, the source worth reading lives under:
 
-- `self-hosted/` — the vLLM self-hosting path (scripts, model docs, clients)
-- `bedrock/` — the Bedrock multi-model path
+- `benchmarks/` — the SWE benchmark harness that drives Claude Code, plus the LiteLLM proxy for open-weight Bedrock models (Paths 1 and 2)
+- `self-hosted/` — the vLLM self-hosting path on EC2 (scripts, model docs, clients) (Path 3)
 - top-level `README.md` and each subdirectory's `README.md`
 
 ## Conventions

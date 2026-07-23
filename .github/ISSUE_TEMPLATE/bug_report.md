@@ -10,8 +10,9 @@ assignees: ''
 A clear and concise description of what the bug is.
 
 **Which path?**
-- [ ] Bedrock — `bedrock/`
-- [ ] Self-hosted (EC2) — `self-hosted/`
+- [ ] Path 1 — Anthropic models on Amazon Bedrock (`benchmarks/`)
+- [ ] Path 2 — open-weight models on Amazon Bedrock via the LiteLLM proxy (`benchmarks/`)
+- [ ] Path 3 — self-hosted open-weight models on EC2 with vLLM (`self-hosted/`)
 
 **To reproduce**
 Steps to reproduce the behavior (include the exact command and the model alias used):

@@ -1,9 +1,4 @@
 results/
-# but keep the published HumanEval benchmark summaries (evidence for README claims)
-!bedrock/benchmark/results/
-!bedrock/benchmark/results/**/summary.json
-!bedrock/benchmark/results/**/summary_rescored.json
-!bedrock/benchmark/results/**/results_rescored.csv
 docs-local/
 FINDINGS.md
 PLAN.md
@@ -23,8 +18,7 @@ self-hosted/vllm/benchmark-output/
 
 # Benchmark run outputs (generated artifacts, metrics, and locally cloned target
 # repos) are produced per run and never committed. The double-glob form also
-# catches nested copies a tool/cwd mistake might create
-# (e.g. bedrock/benchmarks/swe-benchmark-data/).
+# catches nested copies a tool/cwd mistake might create.
 benchmarks/swe-benchmark-data/
 **/benchmarks/swe-benchmark-data/
 __pycache__/
