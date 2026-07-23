@@ -236,6 +236,119 @@ class EvaluateWithCodexTest(unittest.TestCase):
             )
 
 
+def _extra_folder(root: Path, task: str, model: str) -> Path:
+    """Create a second artifact folder with its own metrics.json under root."""
+    folder = root / task / model
+    folder.mkdir(parents=True)
+    for filename in ("github-issue.md", "lld.md", "review.md", "testing.md"):
+        (folder / filename).write_text(f"# {filename}\n\nBody.\n", encoding="utf-8")
+    (folder / "metrics.json").write_text(
+        json.dumps(
+            {
+                "task": task,
+                "model": model,
+                "repo": "https://example.invalid/owner/repo",
+                "ref": "v1.2.3",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return folder
+
+
+class DiscoverArtifactFoldersTest(unittest.TestCase):
+    def test_finds_every_folder_with_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            a = _artifact_folder(root)
+            b = _extra_folder(root, "task-b", "candidate-b")
+            found = codex_judge._discover_artifact_folders(root)
+            self.assertEqual(found, sorted([a.resolve(), b.resolve()]))
+
+    def test_ignores_folders_without_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _artifact_folder(root, with_metrics=False)
+            found = codex_judge._discover_artifact_folders(root)
+            self.assertEqual(found, [])
+
+    def test_single_folder_passed_directly_is_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = _artifact_folder(Path(temp_dir))
+            found = codex_judge._discover_artifact_folders(folder)
+            self.assertEqual(found, [folder.resolve()])
+
+    def test_missing_root_fails(self) -> None:
+        with self.assertRaisesRegex(JudgeError, "not a directory"):
+            codex_judge._discover_artifact_folders("/no/such/dir/here")
+
+
+class EvaluateTreeWithCodexTest(unittest.TestCase):
+    def test_judges_every_discovered_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _artifact_folder(root)
+            _extra_folder(root, "task-b", "candidate-b")
+
+            judged: list[Path] = []
+
+            def fake_eval(folder, **kwargs):  # noqa: ANN001, ANN003
+                judged.append(Path(folder))
+                return _valid_result()
+
+            with mock.patch.object(
+                codex_judge, "evaluate_artifact_folder_with_codex", fake_eval
+            ):
+                results = codex_judge.evaluate_tree_with_codex(root)
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(len(judged), 2)
+
+    def test_one_bad_folder_does_not_abort_batch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            good = _artifact_folder(root)
+            bad = _extra_folder(root, "task-b", "candidate-b")
+
+            def fake_eval(folder, **kwargs):  # noqa: ANN001, ANN003
+                if Path(folder) == bad.resolve() or Path(folder) == bad:
+                    raise JudgeError("boom")
+                return _valid_result()
+
+            with mock.patch.object(
+                codex_judge, "evaluate_artifact_folder_with_codex", fake_eval
+            ):
+                results = codex_judge.evaluate_tree_with_codex(root)
+
+            self.assertEqual(list(results), [str(good.resolve())])
+
+    def test_no_folders_found_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(JudgeError, "no artifact folders found"):
+                codex_judge.evaluate_tree_with_codex(temp_dir)
+
+    def test_no_overwrite_skips_folders_with_eval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            done = _artifact_folder(root)
+            (done / "eval.json").write_text("{}", encoding="utf-8")
+            pending = _extra_folder(root, "task-b", "candidate-b")
+
+            judged: list[Path] = []
+
+            def fake_eval(folder, **kwargs):  # noqa: ANN001, ANN003
+                judged.append(Path(folder))
+                return _valid_result()
+
+            with mock.patch.object(
+                codex_judge, "evaluate_artifact_folder_with_codex", fake_eval
+            ):
+                results = codex_judge.evaluate_tree_with_codex(root, overwrite=False)
+
+            self.assertEqual(judged, [pending.resolve()])
+            self.assertEqual(list(results), [str(pending.resolve())])
+
+
 class BuildCodexCmdTest(unittest.TestCase):
     def test_reads_prompt_from_stdin_and_includes_working_root(self) -> None:
         cmd = codex_judge._build_codex_cmd(

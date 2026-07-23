@@ -408,11 +408,21 @@ uv run python codex_judge.py \
 
 `codex exec` streams nothing to the terminal until it finishes (it buffers and prints only the final message), so a multi-minute run at `high` effort on a real repository looks idle when it is really working -- give it a few minutes.
 
+To score many folders at once, pass `--recursive` and point `--folder` at a top-level directory. The judge walks that directory recursively, treats every subdirectory that contains a `metrics.json` as one artifact folder, and judges each in turn. A folder that fails (missing `repo`/`ref`, a codex or clone failure, invalid scores) is logged and skipped so one bad folder never aborts the batch; combine with `--no-overwrite` to resume a run and skip folders that already have an `eval.json`:
+
+```bash
+cd benchmarks/scripts
+# Judge every model, task, and repo already collected under swe-benchmark-data.
+uv run python codex_judge.py --recursive --no-overwrite \
+    --folder ../swe-benchmark-data
+```
+
 Common overrides:
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--folder` | -- | Artifact folder to score (required). Must contain the four artifacts and a `metrics.json` with `repo`/`ref`. |
+| `--folder` | -- | Artifact folder to score (required). Must contain the four artifacts and a `metrics.json` with `repo`/`ref`. With `--recursive`, a top-level directory to search instead. |
+| `--recursive` | (single folder) | Treat `--folder` as a top-level directory: recursively judge every subdirectory that contains a `metrics.json`. Cannot be combined with `--repo`. |
 | `--repo` | (clone from `metrics.json`) | Use this local repository checkout as-is instead of cloning. |
 | `--model` | `openai.gpt-5.6-sol` | Codex model id. Also settable via `JUDGE_MODEL`. |
 | `--reasoning-effort` | `high` | One of `none`, `low`, `medium`, `high`, `xhigh`, `max`. Also settable via `JUDGE_REASONING_EFFORT`. |

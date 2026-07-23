@@ -25,6 +25,12 @@ The flow:
 
 The wrapper writes and validates the output; codex never writes ``eval.json``
 itself, so the arithmetic and identifier guarantees match the direct path.
+
+Batch mode (``--recursive``) points the judge at a top-level directory instead
+of a single artifact folder: it walks that directory recursively, treats every
+subdirectory that contains a ``metrics.json`` as one artifact folder to score,
+and judges each in turn. A folder whose scoring fails is logged and skipped so
+one bad folder never aborts the batch.
 """
 
 from __future__ import annotations
@@ -370,6 +376,38 @@ def clone_repo_at_ref(
     return target
 
 
+METRICS_FILENAME = "metrics.json"
+
+
+def _discover_artifact_folders(root: str | Path) -> list[Path]:
+    """Recursively find every artifact folder under ``root``.
+
+    An artifact folder is any directory that directly contains a
+    ``metrics.json`` file; that file marks the directory as holding a set of
+    SWE artifacts the judge knows how to score. The walk starts at ``root``
+    itself (so a single artifact folder passed directly is also discovered) and
+    descends into every subdirectory.
+
+    Args:
+        root: Top-level directory to search.
+
+    Returns:
+        Sorted list of absolute artifact-folder paths (deterministic order).
+
+    Raises:
+        JudgeError: If ``root`` is not an existing directory.
+    """
+    root_path = Path(root).expanduser().resolve()
+    if not root_path.is_dir():
+        raise JudgeError(f"not a directory: {root_path}")
+    folders = {
+        metrics_file.parent
+        for metrics_file in root_path.rglob(METRICS_FILENAME)
+        if metrics_file.is_file()
+    }
+    return sorted(folders)
+
+
 def _resolve_repo_ref(metrics: dict[str, Any] | None) -> tuple[str, str]:
     """Extract the required ``repo`` and ``ref`` from metrics, failing loudly."""
     if not metrics:
@@ -525,6 +563,71 @@ def evaluate_artifact_folder_with_codex(
     return result
 
 
+def evaluate_tree_with_codex(
+    root: str | Path,
+    *,
+    overwrite: bool = True,
+    **kwargs: Any,
+) -> dict[str, dict[str, Any]]:
+    """Judge every artifact folder found recursively under ``root``.
+
+    Walks ``root`` with :func:`_discover_artifact_folders` and scores each
+    directory that contains a ``metrics.json`` by delegating to
+    :func:`evaluate_artifact_folder_with_codex`. A folder that fails to score
+    (missing repo/ref, a codex or clone failure, invalid arithmetic) is logged
+    and skipped so one bad folder never aborts the whole batch. When
+    ``overwrite`` is False, folders that already have an ``eval.json`` are
+    skipped up front rather than re-judged.
+
+    Args:
+        root: Top-level directory to search for artifact folders.
+        overwrite: Re-judge folders that already have an ``eval.json``.
+        **kwargs: Forwarded verbatim to
+            :func:`evaluate_artifact_folder_with_codex` (model, codex_bin,
+            reasoning_effort, sandbox, timeouts, etc.).
+
+    Returns:
+        A mapping of artifact-folder path (as a string) to its validated
+        evaluation, for every folder that scored successfully.
+
+    Raises:
+        JudgeError: If ``root`` is not a directory, or no artifact folder is
+            found under it.
+    """
+    folders = _discover_artifact_folders(root)
+    if not folders:
+        raise JudgeError(
+            f"no artifact folders found under {Path(root).expanduser().resolve()}: "
+            f"expected at least one subdirectory containing {METRICS_FILENAME}"
+        )
+
+    logger.info("discovered %d artifact folder(s) under %s", len(folders), root)
+    results: dict[str, dict[str, Any]] = {}
+    failures: list[tuple[Path, str]] = []
+    for index, folder in enumerate(folders, start=1):
+        if not overwrite and (folder / "eval.json").exists():
+            logger.info(
+                "[%d/%d] skipping (eval.json exists): %s", index, len(folders), folder
+            )
+            continue
+        logger.info("[%d/%d] judging %s", index, len(folders), folder)
+        try:
+            results[str(folder)] = evaluate_artifact_folder_with_codex(
+                folder, overwrite=overwrite, **kwargs
+            )
+        except JudgeError as exc:
+            logger.error("[%d/%d] failed %s: %s", index, len(folders), folder, exc)
+            failures.append((folder, str(exc)))
+
+    logger.info(
+        "batch complete: %d scored, %d failed, %d total",
+        len(results),
+        len(failures),
+        len(folders),
+    )
+    return results
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -536,13 +639,28 @@ def _build_parser() -> argparse.ArgumentParser:
             "By default the repository is cloned from the folder's metrics.json "
             "(repo + ref) into the clone root and used as codex's read-only "
             "working root.\n\n"
-            "Example:\n"
+            "Score one folder:\n"
             "  uv run scripts/codex_judge.py \\\n"
-            "    --folder swe-benchmark-data/<repo>/<task>/<model>"
+            "    --folder swe-benchmark-data/<repo>/<task>/<model>\n\n"
+            "Score every folder under a tree (each subdirectory that contains a\n"
+            "metrics.json is judged):\n"
+            "  uv run scripts/codex_judge.py --recursive \\\n"
+            "    --folder swe-benchmark-data"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--folder", required=True, help="Artifact folder to score")
+    parser.add_argument(
+        "--folder",
+        required=True,
+        help="Artifact folder to score, or (with --recursive) a top-level "
+        "directory to search for artifact folders.",
+    )
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Treat --folder as a top-level directory: recursively find every "
+        "subdirectory that contains a metrics.json and judge each one.",
+    )
     parser.add_argument(
         "--repo",
         help="Use this local repository checkout as-is instead of cloning from "
@@ -602,25 +720,38 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments, run the codex judge, and report the result."""
     args = _build_parser().parse_args(argv)
+    common = dict(
+        model=args.model,
+        codex_bin=args.codex_bin,
+        git_bin=args.git_bin,
+        clone_root=Path(args.clone_root).expanduser(),
+        clone_timeout_seconds=args.clone_timeout_seconds,
+        template_path=args.template,
+        task_context=optional_file(args.task_context_file, "task context"),
+        repository_context=optional_file(
+            args.repository_context_file, "repository context"
+        ),
+        reasoning_effort=args.reasoning_effort,
+        sandbox=args.sandbox,
+        timeout_seconds=args.timeout_seconds,
+        use_output_schema=args.output_schema,
+        overwrite=not args.no_overwrite,
+    )
+
+    if args.recursive:
+        if args.repo:
+            logger.error("--repo cannot be combined with --recursive")
+            return 1
+        try:
+            results = evaluate_tree_with_codex(args.folder, **common)
+        except JudgeError as exc:
+            logger.error("%s", exc)
+            return 1
+        return 0 if results else 1
+
     try:
         result = evaluate_artifact_folder_with_codex(
-            folder=args.folder,
-            repo=args.repo,
-            model=args.model,
-            codex_bin=args.codex_bin,
-            git_bin=args.git_bin,
-            clone_root=Path(args.clone_root).expanduser(),
-            clone_timeout_seconds=args.clone_timeout_seconds,
-            template_path=args.template,
-            task_context=optional_file(args.task_context_file, "task context"),
-            repository_context=optional_file(
-                args.repository_context_file, "repository context"
-            ),
-            reasoning_effort=args.reasoning_effort,
-            sandbox=args.sandbox,
-            timeout_seconds=args.timeout_seconds,
-            use_output_schema=args.output_schema,
-            overwrite=not args.no_overwrite,
+            folder=args.folder, repo=args.repo, **common
         )
     except JudgeError as exc:
         logger.error("%s", exc)
