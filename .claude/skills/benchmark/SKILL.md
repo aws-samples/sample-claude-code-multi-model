@@ -9,7 +9,7 @@ metadata:
 
 # Benchmark Skill
 
-Use this skill to run **one complete SWE benchmark end to end** for a chosen model: pre-flight checks, the harness run over a dataset, and scoring with the judge. It is the interactive front end to [`benchmarks/scripts/run-e2e-benchmark.sh`](../../../benchmarks/scripts/run-e2e-benchmark.sh); it collects three inputs, surfaces the exact command to watch each long-running step, and fails loudly with an actionable message the moment anything is wrong.
+Use this skill to run **one complete SWE benchmark end to end** for a chosen model: bring up the backing service, pre-flight checks, the harness run over a dataset, and scoring with the judge. It is the interactive front end to [`benchmarks/scripts/run-e2e-benchmark.sh`](../../../benchmarks/scripts/run-e2e-benchmark.sh); it collects three inputs, surfaces the exact command to watch each long-running step, and fails loudly with an actionable message the moment anything is wrong. For the **vllm** path it also manages the server (starts it on the requested model, stopping any other model first) and the DuckDB metrics collector (starts it before the run, stops it and archives the snapshot after).
 
 All the real logic lives in the shell script and its Python helpers ([`preflight_check.py`](../../../benchmarks/scripts/preflight_check.py), [`run-swe-headless.py`](../../../benchmarks/scripts/run-swe-headless.py), [`codex_judge.py`](../../../benchmarks/scripts/codex_judge.py)). This skill orchestrates them and reports. The concepts and the per-path setup are documented in [`benchmarks/README.md`](../../../benchmarks/README.md) and [`benchmarks/docs/`](../../../benchmarks/docs/); the full manual run-book is [`benchmarks/docs/end-to-end-self-hosted-run.md`](../../../benchmarks/docs/end-to-end-self-hosted-run.md).
 
@@ -27,10 +27,10 @@ Collect these three, in order. Do not guess -- ask if any is missing.
 ## Workflow
 
 1. **Gather the three inputs** -- provider, model, dataset. Confirm them back to the user.
-2. **Confirm the backing service is up** for the chosen path (this skill does NOT start vLLM or the proxy -- they are long-lived services). Point the user at the right start command if not.
+2. **Bring up / confirm the backing service** for the chosen path. For **vllm**: check the HF token, then (re)start the vLLM server on the requested model -- stopping any other model first -- using the model guide's serve command at its largest context window, and start the DuckDB collector. For litellm/bedrock: confirm the proxy/credentials.
 3. **Dry-run the pre-flight** so the user sees what will happen before anything runs.
 4. **Run the orchestrator**, streaming its output, and tell the user what to tail.
-5. **Report** where the results landed.
+5. **Wrap up and report**: (vllm) stop the collector and archive its DuckDB snapshot tagged with model/scope/timestamp, then report where the results landed.
 
 Keep the user informed at every step: before each long-running command, print it verbatim and give the tail/status command to watch it.
 
@@ -45,42 +45,87 @@ Ask for provider, model, and dataset if the user did not already give them. Then
 > - model: **{model}**
 > - dataset: **{dataset}**
 >
-> Results will land under `benchmarks/swe-benchmark-data/<repo>/<task>/{model-slug}/`. Proceed?
+> Results will land under `benchmarks/swe-benchmark-data/{model-slug}/<repo>/<task>/`. Proceed?
 
 Wait for confirmation before running anything.
 
-## Step 2 - Confirm the backing service (per path)
+## Step 2 - Confirm (and for vllm, bring up) the backing service
 
-The orchestrator checks this too and fails loudly, but confirm early so the user is not surprised.
+The orchestrator re-checks the service and fails loudly, but for the **vllm** path this skill actively brings the server up on the requested model. Handle the path the user chose:
 
-- **provider = vllm** -- a vLLM server must already serve `{model}` on `127.0.0.1:8000`:
-  ```bash
-  curl -s http://127.0.0.1:8000/v1/models | python3 -m json.tool
-  ```
-  If it is not up, or serves a different model, tell the user to start it (from the repo root):
-  ```bash
-  cd self-hosted/vllm/scripts
-  MODEL=<HF repo> SERVED_NAME={model} MAX_MODEL_LEN=200000 ./vllm-serve.sh
-  # watch it come up:
-  tail -f self-hosted/vllm/logs/vllm-serve.log
-  ```
-  Also recommend starting the DuckDB metrics collector so a GPU time series is captured during the run (see [end-to-end run-book](../../../benchmarks/docs/end-to-end-self-hosted-run.md), Step 2):
-  ```bash
-  cd self-hosted/vllm/scripts && ./vllm-metrics.sh start && ./vllm-metrics.sh status
-  ```
+### provider = vllm -- ensure the server is serving `{model}`
 
-- **provider = litellm** -- the LiteLLM proxy must be up on `127.0.0.1:4000`:
-  ```bash
-  cd benchmarks && ./scripts/bedrock-mantle-proxy.sh --status
-  # if not running:
-  ./scripts/bedrock-mantle-proxy.sh
-  tail -f benchmarks/.litellm.log
-  ```
+Do these in order. Do not skip the HF-token check; a missing token is the most common cause of a stalled first download.
 
-- **provider = bedrock** -- confirm AWS credentials:
+**2a. HuggingFace token must be available BEFORE starting vLLM.** `vllm-serve.sh` resolves a token from `$HF_TOKEN`, else a `.hf_token` file in the repo root, the `self-hosted/vllm/` dir, or `$HOME`. Check that at least one is present:
+
+```bash
+cd /home/ubuntu/repos/aarora79/sample-claude-code-multi-model
+if [ -n "${HF_TOKEN:-}" ] || [ -s .hf_token ] || [ -s self-hosted/vllm/.hf_token ] || [ -s "$HOME/.hf_token" ]; then
+  echo "HF token available"
+else
+  echo "NO HF TOKEN"
+fi
+```
+
+If it prints `NO HF TOKEN`, **stop and ask the user to provide one** before continuing -- e.g. write it to `.hf_token` in the repo root (the file is gitignored):
+
+> No HuggingFace token found. vLLM needs one to download `{model}` at a usable speed (without it, HF's anonymous rate limits can make a 60-160 GB download crawl or stall). Please provide a token: write it to `.hf_token` in the repo root, or export `HF_TOKEN`. Let me know once it's set and I'll continue.
+
+Do not print or echo the token value. **Note:** the serve script reads `.hf_token` (with an underscore). If the user only has a `.hftoken` file, tell them to rename it to `.hf_token` or export `HF_TOKEN`, because the script will not pick up `.hftoken`.
+
+**2b. Check what vLLM is currently serving (if anything):**
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models | python3 -c "import sys,json; print([m['id'] for m in json.load(sys.stdin).get('data',[])])" 2>/dev/null || echo "not running"
+```
+
+- If it already serves `{model}` -> nothing to do, move on.
+- If it serves a **different** model -> stop it first, then start the requested one:
   ```bash
-  aws sts get-caller-identity
+  cd self-hosted/vllm/scripts && ./vllm-serve.sh --stop
   ```
+- If it is **not running** -> start the requested one.
+
+**2c. Start vLLM on `{model}` using the parameters from its model guide.** Read `self-hosted/vllm/models/{model}.md` (e.g. `qwen3.6-35b-a3b.md`) and use the serve command it documents, choosing the **largest practical context window** that guide endorses (the "Serve it" block's `MAX_MODEL_LEN`; do not exceed the guide's recommended max, since a bigger window can fail to boot at useful concurrency). Copy that guide's `MODEL`, `SERVED_NAME`, `TOOL_PARSER`, and `MAX_MODEL_LEN` exactly. `vllm-serve.sh` always tees its log to `self-hosted/vllm/logs/vllm-serve.log`.
+
+```bash
+cd self-hosted/vllm/scripts
+# Values below come straight from self-hosted/vllm/models/{model}.md -- do not invent them.
+MODEL="<HF repo from the guide>" \
+SERVED_NAME="{model}" \
+TP=4 \
+PORT=8000 \
+MAX_MODEL_LEN="<largest window the guide endorses>" \
+GPU_MEM_UTIL=0.90 \
+TOOL_PARSER="<parser from the guide>" \
+  ./vllm-serve.sh
+# The launcher blocks until the server is ready (first download can take minutes).
+# Watch progress in another terminal:  tail -f self-hosted/vllm/logs/vllm-serve.log
+```
+
+If there is no guide for `{model}` under `self-hosted/vllm/models/`, tell the user and ask for the HF repo id, tool-call parser, and desired context window rather than guessing.
+
+**2d. Start the DuckDB metrics collector** so a GPU time series is captured for the whole run (it is stopped and the snapshot archived in Step 5):
+
+```bash
+cd self-hosted/vllm/scripts && ./vllm-metrics.sh start && ./vllm-metrics.sh status
+```
+
+### provider = litellm -- the LiteLLM proxy must be up on `127.0.0.1:4000`
+
+```bash
+cd benchmarks && ./scripts/bedrock-mantle-proxy.sh --status
+# if not running:
+./scripts/bedrock-mantle-proxy.sh
+tail -f benchmarks/.litellm.log
+```
+
+### provider = bedrock -- confirm AWS credentials
+
+```bash
+aws sts get-caller-identity
+```
 
 ## Step 3 - Pre-flight (see what will happen first)
 
@@ -119,23 +164,48 @@ Tell the user, before it runs:
 
 If the run is long, remind the user they can run only the harness now and score later with `--skip-judge`, then:
 ```bash
-cd benchmarks/scripts && uv run python codex_judge.py --recursive --no-overwrite --folder ../swe-benchmark-data/<repo>
+cd benchmarks/scripts && uv run python codex_judge.py --recursive --no-overwrite --folder ../swe-benchmark-data/{model-slug}
 ```
 
-## Step 5 - Report
+## Step 5 - Wrap up (stop the collector, archive the DuckDB snapshot) and report
 
-When it finishes, tell the user where the results are and what they contain:
+**5a. (vllm path) Stop the DuckDB metrics collector** now that the run is done, so it stops appending to the live database:
 
-- Each `benchmarks/swe-benchmark-data/<repo>/<task>/{model-slug}/` holds the four artifacts, `metrics.json` (cost + any vLLM server metrics), and `eval.json` (quality scores).
-- The same task run by another model or path lands in a sibling `{model-slug}/` folder, directly comparable.
+```bash
+cd self-hosted/vllm/scripts && ./vllm-metrics.sh stop
+```
+
+**5b. (vllm path) Archive the DuckDB snapshot** by renaming the live database to one tagged with the model, dataset/task scope, and a timestamp -- so it is preserved for this run and the next run starts from a fresh, empty database. The live file is `self-hosted/vllm/benchmark-output/vllm-metrics.duckdb`. Build the timestamp from the actual current time (do not hardcode it), and use the dataset's repo name as the task scope:
+
+```bash
+cd self-hosted/vllm/benchmark-output
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+# {model-slug} = the model folder name; {scope} = the dataset repo (e.g. mcp-gateway-registry)
+mv vllm-metrics.duckdb "vllm-metrics_{model-slug}_{scope}_${TS}.duckdb"
+echo "archived snapshot: vllm-metrics_{model-slug}_{scope}_${TS}.duckdb"
+```
+
+If the collector was never started (or this is not the vllm path), skip 5a/5b. If you want a dashboard from the archived snapshot, render it before or after the rename by pointing `--db` at the file:
+
+```bash
+cd self-hosted/vllm && uv run python -m clients.build_dashboard \
+  --db benchmark-output/vllm-metrics_{model-slug}_{scope}_{timestamp}.duckdb \
+  --output benchmark-output/dashboard_{model-slug}_{scope}_{timestamp}.html
+```
+
+**5c. Report** where the results are and what they contain:
+
+- Each `benchmarks/swe-benchmark-data/{model-slug}/<repo>/<task>/` holds the four artifacts, `metrics.json` (cost + any vLLM server metrics), and `eval.json` (quality scores).
+- The same task run by another model lands under a sibling top-level `{model-slug}/` folder, directly comparable.
 - Suggest inspecting one result:
   ```bash
-  cat benchmarks/swe-benchmark-data/<repo>/<task>/{model-slug}/eval.json
+  cat benchmarks/swe-benchmark-data/{model-slug}/<repo>/<task>/eval.json
   ```
+- If a DuckDB snapshot was archived (5b), point the user at it.
 
 ## Notes
 
-- **This skill does not start or stop vLLM or the LiteLLM proxy.** Those are long-lived services with their own scripts (`vllm-serve.sh`, `bedrock-mantle-proxy.sh`). The skill only checks they are up and tells the user how to start them.
+- **This skill manages the vLLM server and the DuckDB collector for the `vllm` path** (Step 2 brings the server up on the requested model, stopping any other model first; Step 5 stops the collector and archives its snapshot). It does **not** manage the LiteLLM proxy -- that is a long-lived service with its own script (`bedrock-mantle-proxy.sh`); the skill only checks it is up.
 - **provider = bedrock is Anthropic-only.** For non-Anthropic Bedrock models use `litellm`. The orchestrator warns if a non-Anthropic id is passed with `bedrock`.
 - **The model slug is not always the model id.** For a Bedrock inference profile the folder name drops the `us.anthropic.` prefix and any `[...]` suffix (e.g. `us.anthropic.claude-opus-4-8` -> `claude-opus-4-8`); a served name like `qwen3-coder-30b` is unchanged. The pre-flight helper and the orchestrator both compute this the same way the harness does.
 - Every script takes `--help`.
