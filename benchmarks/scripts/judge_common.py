@@ -102,6 +102,102 @@ class EvaluationResult(BaseModel):
         return self
 
 
+def missing_artifacts(folder: str | Path) -> list[str]:
+    """Return the required artifact filenames that are missing or empty.
+
+    A required artifact that does not exist -- or exists but is blank -- is a
+    genuine candidate (model) failure: the run did not produce that design
+    document. This lets the judge score such a folder 0 rather than erroring out
+    and dropping it from the results.
+
+    Args:
+        folder: The artifact directory.
+
+    Returns:
+        The missing/empty artifact filenames (e.g. ``["github-issue.md"]``),
+        empty if all four are present and non-empty.
+    """
+    artifact_dir = Path(folder).expanduser().resolve()
+    missing: list[str] = []
+    for filename in ARTIFACT_FILES.values():
+        path = artifact_dir / filename
+        try:
+            if not path.read_text(encoding="utf-8").strip():
+                missing.append(filename)
+        except (FileNotFoundError, OSError):
+            missing.append(filename)
+    return missing
+
+
+def zero_score_result(
+    *, task_id: str, candidate_id: str, missing: list[str]
+) -> dict[str, Any]:
+    """Build a valid zero-score evaluation for a folder missing artifacts.
+
+    The result is schema-shaped exactly like a judged one (all criteria 0, all
+    totals 0, ``task_score`` 0.0) so downstream tooling treats it uniformly, but
+    the verdict names the missing artifacts as the reason -- a genuine model
+    failure, not a judging error.
+
+    Args:
+        task_id: The task identifier for the ``task`` field.
+        candidate_id: The candidate (model) identifier for the ``model`` field.
+        missing: The missing/empty artifact filenames to name in the verdict.
+
+    Returns:
+        A validated, JSON-ready evaluation dict with ``task_score`` 0.0.
+    """
+    zero_artifact = {
+        "completeness": 0,
+        "correctness": 0,
+        "specificity": 0,
+        "risk_awareness": 0,
+        "total": 0,
+        "notes": "Artifact not produced by the candidate run.",
+    }
+    verdict = (
+        "MODEL FAILURE: the candidate run did not produce the required "
+        f"artifact(s): {', '.join(missing)}. Scored 0."
+    )
+    result = EvaluationResult.model_validate(
+        {
+            "task": task_id,
+            "model": candidate_id,
+            "scores": {
+                "github_issue": dict(zero_artifact),
+                "lld": dict(zero_artifact),
+                "review": dict(zero_artifact),
+                "testing": dict(zero_artifact),
+            },
+            "task_score": 0.0,
+            "verdict": verdict,
+        }
+    )
+    return result.model_dump(mode="json")
+
+
+def identify_folder(folder: str | Path) -> tuple[str, str]:
+    """Resolve (task_id, candidate_id) for a folder the way the judge does.
+
+    Mirrors the identifier resolution in :func:`render_judge_prompt`: prefer
+    ``metrics.json`` fields, else the ``<model>/<repo>/<task>`` folder layout.
+
+    Args:
+        folder: The artifact directory.
+
+    Returns:
+        A tuple of (task id, candidate id).
+    """
+    artifact_dir = Path(folder).expanduser().resolve()
+    metrics_path = artifact_dir / "metrics.json"
+    metadata = (
+        _load_json_object(metrics_path, "metrics.json") if metrics_path.exists() else {}
+    )
+    task_id = metadata.get("task") or artifact_dir.name
+    candidate_id = metadata.get("model") or artifact_dir.parent.parent.name
+    return str(task_id), str(candidate_id)
+
+
 def read_text(path: Path, label: str) -> str:
     """Read a non-empty UTF-8 text file, raising JudgeError on any problem.
 

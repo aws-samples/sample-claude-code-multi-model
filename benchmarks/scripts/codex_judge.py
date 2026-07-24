@@ -60,9 +60,12 @@ from judge_common import (  # noqa: E402
     EvaluationResult,
     JudgeError,
     atomic_write_json,
+    identify_folder,
+    missing_artifacts,
     optional_file,
     parse_and_validate_result,
     render_judge_prompt,
+    zero_score_result,
 )
 
 logging.basicConfig(
@@ -491,6 +494,39 @@ def evaluate_artifact_folder_with_codex(
     eval_path = artifact_dir / "eval.json"
     if eval_path.exists() and not overwrite:
         raise JudgeError(f"eval.json exists and overwrite is disabled: {eval_path}")
+
+    # A folder missing (or with empty) required artifacts is a genuine model
+    # failure, not a judging error: score it 0 and record why, instead of
+    # cloning the repo and calling codex only to fail. This keeps the failed
+    # task in the results with an explicit MODEL FAILURE verdict.
+    missing = missing_artifacts(artifact_dir)
+    if missing:
+        task_id, candidate_id = identify_folder(artifact_dir)
+        logger.warning(
+            "%s: missing artifact(s) %s -- scoring 0 (model failure)",
+            artifact_dir,
+            ", ".join(missing),
+        )
+        result = zero_score_result(
+            task_id=task_id, candidate_id=candidate_id, missing=missing
+        )
+        result["judge"] = {
+            "model": model or "codex-config-default",
+            "provider": "codex-exec",
+            "repo_grounded": False,
+            "scored_zero_missing_artifacts": missing,
+            "evaluated_at": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+        if write_outputs:
+            atomic_write_json(eval_path, result)
+            metrics_path = artifact_dir / "metrics.json"
+            if metrics_path.exists():
+                existing = json.loads(metrics_path.read_text(encoding="utf-8"))
+                existing["evaluation"] = result
+                atomic_write_json(metrics_path, existing)
+        return result
 
     prompt, task_id, candidate_id, metrics = render_judge_prompt(
         artifact_dir,

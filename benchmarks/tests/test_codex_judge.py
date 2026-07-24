@@ -186,6 +186,29 @@ class EvaluateWithCodexTest(unittest.TestCase):
         self.assertEqual(metrics["evaluation"], result)
         self.assertEqual(metrics["input_tokens"], 99)
 
+    def test_missing_artifact_scores_zero_without_running_codex(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = _artifact_folder(Path(temp_dir))
+            # Simulate a model failure: one required artifact was never written.
+            (folder / "github-issue.md").unlink()
+            with mock.patch.object(codex_judge, "_run_codex") as run_codex:
+                with mock.patch.object(codex_judge, "clone_repo_at_ref") as clone_fn:
+                    result = codex_judge.evaluate_artifact_folder_with_codex(folder)
+            run_codex.assert_not_called()
+            clone_fn.assert_not_called()
+            self.assertEqual(result["task_score"], 0.0)
+            self.assertIn("MODEL FAILURE", result["verdict"])
+            self.assertIn("github-issue.md", result["verdict"])
+            self.assertEqual(
+                result["judge"]["scored_zero_missing_artifacts"], ["github-issue.md"]
+            )
+            self.assertFalse(result["judge"]["repo_grounded"])
+            # eval.json written and mirrored into metrics.json.
+            eval_data = json.loads((folder / "eval.json").read_text(encoding="utf-8"))
+            self.assertEqual(eval_data["task_score"], 0.0)
+            metrics = json.loads((folder / "metrics.json").read_text(encoding="utf-8"))
+            self.assertEqual(metrics["evaluation"]["task_score"], 0.0)
+
     def test_missing_metrics_fails_before_running_codex(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             folder = _artifact_folder(Path(temp_dir), with_metrics=False)
