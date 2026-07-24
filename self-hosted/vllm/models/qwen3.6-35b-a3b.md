@@ -60,6 +60,17 @@ export DO_NOT_TRACK=1
 ```
 
 > **Why 200000 and not the full 256K?** `MAX_MODEL_LEN` is a hard ceiling you set — it does not auto-expand to native. 200K stays just under the 256K native window (so no rope scaling) while leaving a little KV-cache headroom; the full 256K would consume so much KV cache it may not boot at useful concurrency. If you hit OOM or see `Maximum concurrency ... 1x` at boot, lower it (e.g. `131072` or `65536`). See the long-context tuning note below.
+>
+> **Single-request benchmarking — use the full 262144.** The 200K default and the "may not boot at useful concurrency" caution above are written for multi-tenant serving, where every concurrent request needs its own KV-cache slice. The benchmark harness runs at `concurrency: 1` (see `benchmarks/config/runner.yaml`), so only one request is ever in flight and that caution does not apply — serve the full native window instead:
+>
+> ```bash
+> MODEL="Qwen/Qwen3.6-35B-A3B" SERVED_NAME="qwen3.6-35b" TP=4 PORT=8000 \
+>   MAX_MODEL_LEN=262144 GPU_MEM_UTIL=0.90 TOOL_PARSER="qwen3_coder" ./vllm-serve.sh
+> ```
+>
+> Measured on 4xL40S at boot: **GPU KV cache 2.15M tokens, max concurrency 8.21x** — no OOM, no `1x` warning. This matters because a real SWE task can exceed 200K in a single request: Claude Code reserves `max_output_tokens` (16000) on top of the prompt, so a 184,001-token prompt hits `184001 + 16000 = 200001`, one token over a 200K window. 262144 gives ~46K more input headroom at zero cost here.
+>
+> Serving the full window is only half the fix — the harness must also tell Claude Code the window so it auto-compacts *before* overflowing it, otherwise the conversation still grows into the ceiling (now 262145) and the client retries the resulting 500 forever. The orchestrator does this automatically on the vllm path (it reads the live `max_model_len` and passes `--context-window`); see [Context window and auto-compaction](../../../benchmarks/docs/harness-reference.md#context-window-and-auto-compaction).
 
 ## How it compares
 

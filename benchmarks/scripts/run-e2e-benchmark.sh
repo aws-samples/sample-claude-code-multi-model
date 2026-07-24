@@ -183,6 +183,20 @@ case "$PROVIDER" in
         else
             ok "vLLM serving '$MODEL' at $ENDPOINT"
         fi
+        # Read the live server's context window (max_model_len) so we can
+        # calibrate Claude Code's auto-compaction to it. Claude Code cannot
+        # detect a custom model's window; without this the conversation grows
+        # until vLLM rejects the request (500) and the client retries forever.
+        VLLM_CONTEXT_WINDOW="$(curl -s -m 5 "$ENDPOINT/v1/models" 2>/dev/null \
+            | uv run python -c 'import sys,json
+d=json.load(sys.stdin).get("data",[])
+w=next((m.get("max_model_len") for m in d if m.get("max_model_len")), None)
+print(w if w else "")' 2>/dev/null || true)"
+        if [[ -n "$VLLM_CONTEXT_WINDOW" ]]; then
+            ok "vLLM context window (max_model_len): $VLLM_CONTEXT_WINDOW -- auto-compaction will be calibrated to it"
+        else
+            warn "Could not read vLLM max_model_len from /v1/models; falling back to the config's context_window. Long tasks may overflow the window."
+        fi
         # The DuckDB metrics collector is optional but recommended on this path.
         if uv run --project "$VLLM_DIR" python -c 'import sys' >/dev/null 2>&1; then :; fi
         if pgrep -f "collect_metrics" >/dev/null 2>&1; then
@@ -217,13 +231,44 @@ ok "No blocking artifact folders."
 
 ok "Pre-flight complete."
 
+# The harness clones each task's repo into <clone_dir>/swe-clone-<task-id>/ and
+# removes it in its own finally block after each task. Register a trap as a
+# backstop so a killed or crashed run does not leave clones behind: it removes
+# exactly this dataset's task dirs (never a broad glob, which would hit
+# swe-judge-repos or the swe-benchmark-data output dir).
+CLONE_DIRS="$(uv run python -c "import sys; sys.path.insert(0,'scripts')
+from dataset_loader import load_dataset
+from runner_config import load_runner_config
+import importlib.util
+s=importlib.util.spec_from_file_location('h','scripts/run-swe-headless.py')
+m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+cfg=load_runner_config('$CONFIG', {'model':'$MODEL','dataset':'$DATASET'})
+d=load_dataset('$DATASET_PATH')
+for t in d.tasks:
+    print(f'{cfg.clone_dir}/swe-clone-{m._safe_task_slug(t.id)}')" 2>/dev/null || true)"
+
+_cleanup_clones() {
+    [[ -z "$CLONE_DIRS" ]] && return 0
+    while IFS= read -r dir; do
+        [[ -n "$dir" && -d "$dir" ]] && rm -rf -- "$dir"
+    done <<< "$CLONE_DIRS"
+    # Always succeed: this is a best-effort backstop on EXIT, and its return
+    # value becomes the script's exit code. The harness already removes each
+    # clone after its task, so the -d test above is normally false (nothing to
+    # remove) -- without this, that falsy test would report a spurious failure.
+    return 0
+}
+trap _cleanup_clones EXIT
+
 # =============================================================================
 step "Step 1 - Run the SWE benchmark"
 # =============================================================================
-BENCH_ARGS=(--config "$CONFIG" --provider "$HARNESS_PROVIDER" --model "$MODEL" --dataset "$DATASET" --stream)
+BENCH_ARGS=(--config "$CONFIG" --provider "$HARNESS_PROVIDER" --model "$MODEL" --dataset "$DATASET" --stream --verbose)
 [[ "$COUNT" != "0" ]] && BENCH_ARGS+=(--count "$COUNT")
 [[ "$HARNESS_PROVIDER" == "endpoint" ]] && BENCH_ARGS+=(--endpoint "$ENDPOINT")
 [[ "$PROVIDER" == "bedrock" ]] && BENCH_ARGS+=(--aws-region "$AWS_REGION_ARG")
+# On the vllm path, calibrate auto-compaction to the live server's window.
+[[ -n "${VLLM_CONTEXT_WINDOW:-}" ]] && BENCH_ARGS+=(--context-window "$VLLM_CONTEXT_WINDOW")
 
 SLUG="$(uv run python -c "import sys; sys.path.insert(0,'scripts'); from runner_config import model_to_slug; print(model_to_slug('$MODEL'))")"
 info "Command:"

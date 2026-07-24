@@ -163,7 +163,9 @@ CLI flags always win, so you can still pin `model`/`dataset` in the file if you 
 | `permission_mode` | str | `acceptEdits` | `claude -p` permission mode. `bypassPermissions` is intentionally rejected. |
 | `allowed_tools` | list | read + write set | Tools `claude -p` may use without prompting. |
 | `max_turns` | int | `60` | Cap on the agent loop (`claude --max-turns`). |
-| `max_output_tokens` | int | `16000` | Per-response output-token cap. |
+| `max_output_tokens` | int | `16000` | Per-response output-token cap (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`). |
+| `context_window` | int | `0` | The model's true context window, in tokens, used to calibrate Claude Code's auto-compaction (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`). `0` leaves it unset. See [Context window and auto-compaction](#context-window-and-auto-compaction). |
+| `auto_compact_fraction` | float | `0.9` | Fraction of `context_window` at which auto-compaction fires. Only used when `context_window > 0`. |
 | `timeout_seconds` | int | `1800` | Wall-clock timeout for a single task's run. |
 | `settings_file` | str | none | Optional `claude --settings` JSON (e.g. the vLLM Claude Code config). |
 
@@ -191,6 +193,30 @@ It runs `claude -p` with `--permission-mode acceptEdits` and a narrow `--allowed
 However `provider` is set, the harness always passes `claude --settings`, and this matters: a Claude Code settings object's `env` block takes precedence over process environment variables, including any in your global `~/.claude/settings.json`. Passing `--settings` is what reliably wins over that global file and pins routing to whatever the config asked for. Exactly what the harness puts in that settings object differs per path and is documented in each path guide.
 
 When `claude -p` returns an error, the harness records the error message and `api_error_status` in `metrics.json` and logs them, so a failed run is diagnosable without re-running it by hand.
+
+### Context window and auto-compaction
+
+Claude Code compacts its own conversation as it nears the context limit, but it can only do this if it knows the model's context window. For a **known Claude model or Amazon Bedrock** it has the window built in. For a **custom model served over a custom `ANTHROPIC_BASE_URL`** (the `endpoint` provider -- a vLLM server or the LiteLLM proxy) it **cannot detect the window**, so on a long agentic task the conversation grows unbounded until the endpoint rejects the request:
+
+```
+API Error: 500 This model's maximum context length is 262144 tokens. However, you
+requested 16000 output tokens and your prompt contains at least 246145 input tokens,
+for a total of at least 262145 tokens.
+```
+
+Claude Code treats that 500 as a transient server error and retries it forever, so the task never finishes. Note the arithmetic: the failing total is `input + max_output_tokens`, because Claude Code reserves the full output budget on top of the prompt.
+
+The fix is to tell Claude Code the true window via **`context_window`**, which the harness maps to the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` environment variable (set both in the process env and in the `--settings` `env` block, since the latter takes precedence). The harness compacts at `floor(context_window * auto_compact_fraction)` -- `0.9` by default -- so there is headroom above the `max_output_tokens` reserve. With `context_window: 262144` that triggers compaction at `235929` tokens, well before the hard limit.
+
+Three ways to set it, in precedence order (CLI wins):
+
+- **Orchestrator, vllm path (automatic):** [run-e2e-benchmark.sh](../scripts/run-e2e-benchmark.sh) reads the live server's `max_model_len` from `/v1/models` and passes it as `--context-window`, so a vLLM run is calibrated to whatever window the server actually booted with -- no manual step.
+- **CLI:** `--context-window 262144` on `run-swe-headless.py`.
+- **Config:** `context_window: 262144` in `runner.yaml`.
+
+Leave it `0` for Anthropic-on-Bedrock and for any known Claude model: their windows are already known to Claude Code, and a `0` value leaves `CLAUDE_CODE_AUTO_COMPACT_WINDOW` unset. On the LiteLLM path, set it to the window of the underlying open-weight model. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is clamped by Claude Code to the model's real window, so an over-large value cannot push it past what the endpoint supports.
+
+`/compact` is an interactive-only command and does **not** work in headless `-p` mode, and there is no tool a model can call to compact its own context -- auto-compaction calibrated by `context_window` is the only mechanism available to a headless run.
 
 ### Common invocations
 

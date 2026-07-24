@@ -210,5 +210,40 @@ class ModelSlugTest(unittest.TestCase):
         self.assertEqual(config.model_slug, "claude-opus-4-8")
 
 
+class AutoCompactWindowTest(unittest.TestCase):
+    def test_unset_by_default(self) -> None:
+        config = load_runner_config(_write(_MINIMAL))
+        self.assertEqual(config.context_window, 0)
+        self.assertIsNone(config.auto_compact_window)
+
+    def test_computed_from_window_and_fraction(self) -> None:
+        config = load_runner_config(_write(_MINIMAL), {"context_window": 262144})
+        self.assertEqual(config.auto_compact_fraction, 0.9)
+        self.assertEqual(config.auto_compact_window, 235929)
+
+    def test_custom_fraction_applied(self) -> None:
+        text = _MINIMAL + "context_window: 100000\nauto_compact_fraction: 0.8\n"
+        config = load_runner_config(_write(text))
+        self.assertEqual(config.auto_compact_window, 80000)
+
+    def test_cli_context_window_override_wins(self) -> None:
+        text = _MINIMAL + "context_window: 131072\n"
+        config = load_runner_config(_write(text), {"context_window": 262144})
+        self.assertEqual(config.auto_compact_window, 235929)
+
+    def test_zero_window_leaves_it_unset(self) -> None:
+        config = load_runner_config(_write(_MINIMAL), {"context_window": 0})
+        self.assertIsNone(config.auto_compact_window)
+
+    def test_negative_window_rejected(self) -> None:
+        with self.assertRaises(RunnerConfigError):
+            load_runner_config(_write(_MINIMAL), {"context_window": -1})
+
+    def test_fraction_above_one_rejected(self) -> None:
+        text = _MINIMAL + "context_window: 100000\nauto_compact_fraction: 1.5\n"
+        with self.assertRaises(RunnerConfigError):
+            load_runner_config(_write(text))
+
+
 if __name__ == "__main__":
     unittest.main()

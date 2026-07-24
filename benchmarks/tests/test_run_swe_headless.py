@@ -62,6 +62,29 @@ class RepoNameTest(unittest.TestCase):
         self.assertEqual(harness._repo_name("https://github.com/foo/bar.git/"), "bar")
 
 
+class SafeTaskSlugTest(unittest.TestCase):
+    def test_kebab_case_id_unchanged(self) -> None:
+        # Well-formed dataset ids pass through untouched -- this is the common
+        # case and what makes the clone path transcribable by the agent.
+        self.assertEqual(harness._safe_task_slug("remove-faiss"), "remove-faiss")
+
+    def test_dots_and_underscores_preserved(self) -> None:
+        self.assertEqual(harness._safe_task_slug("Foo_Bar.1"), "Foo_Bar.1")
+
+    def test_slashes_replaced(self) -> None:
+        self.assertEqual(harness._safe_task_slug("a/b"), "a-b")
+
+    def test_path_traversal_neutralized(self) -> None:
+        # Leading dots/dashes are stripped so a crafted id cannot escape the
+        # clone parent (e.g. "../etc" must not become a traversal).
+        self.assertEqual(harness._safe_task_slug("../etc"), "etc")
+        self.assertEqual(harness._safe_task_slug(".."), "task")
+
+    def test_empty_id_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            harness._safe_task_slug("")
+
+
 class BuildPromptTest(unittest.TestCase):
     def test_prompt_has_all_swe_keys(self) -> None:
         prompt = harness._build_prompt(
@@ -187,6 +210,32 @@ class BuildSettingsArgTest(unittest.TestCase):
             _config(settings_file="self-hosted/vllm/config/claude-code.json")
         )
         self.assertTrue(arg.endswith("self-hosted/vllm/config/claude-code.json"))
+
+    def test_auto_compact_window_set_in_settings_env(self) -> None:
+        import json
+
+        arg = harness._build_settings_arg(_config(context_window=262144))
+        settings = json.loads(arg)
+        # 0.9 * 262144 = 235929: the settings env block must carry the window so
+        # it wins over the process env, which Claude Code otherwise overrides.
+        self.assertEqual(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "235929")
+
+    def test_auto_compact_window_absent_when_unset(self) -> None:
+        import json
+
+        arg = harness._build_settings_arg(_config())
+        settings = json.loads(arg)
+        self.assertNotIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", settings["env"])
+
+
+class BuildEnvTest(unittest.TestCase):
+    def test_auto_compact_window_set_in_process_env(self) -> None:
+        env = harness._build_env(_config(context_window=262144))
+        self.assertEqual(env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "235929")
+
+    def test_auto_compact_window_absent_when_unset(self) -> None:
+        env = harness._build_env(_config())
+        self.assertNotIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", env)
 
 
 def _dataset(n: int) -> Dataset:

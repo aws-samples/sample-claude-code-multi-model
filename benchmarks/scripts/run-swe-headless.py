@@ -28,10 +28,10 @@ import argparse
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess  # nosec B404 - used with list args, no shell, hardcoded command
 import sys
-import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -96,11 +96,43 @@ def _repo_name(repo_url: str) -> str:
     return repo_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
 
 
-def _clone_repo(task: Task, ref: str, clone_dir: str, log_prefix: str = "") -> Path:
-    """Clone a task's repo at a ref into a temp dir named after the repo.
+def _safe_task_slug(task_id: str) -> str:
+    """Return a filesystem-safe slug for a task id, for use in a clone path.
 
-    The checkout lands at ``<clone_dir>/<mktemp>/<repo-name>`` so the /swe skill,
-    which derives {repo-name} from the clone path's basename, gets the right name.
+    The task id lands in a directory name, so anything that is not a plain
+    path-segment character is replaced with ``-``. This both keeps the path the
+    agent must reproduce simple and blocks path-traversal (``/`` and ``.`` runs
+    cannot escape the parent). Task ids are already kebab-case slugs in practice,
+    so this is a defensive no-op for well-formed input.
+
+    Args:
+        task_id: The dataset task id.
+
+    Returns:
+        A slug containing only ``[A-Za-z0-9._-]``, with leading dots/dashes and
+        empty results collapsed to ``task``.
+
+    Raises:
+        ValueError: If task_id is empty.
+    """
+    if not task_id:
+        raise ValueError("task id must not be empty")
+    slug = re.sub(r"[^A-Za-z0-9._-]", "-", task_id).lstrip(".-")
+    return slug or "task"
+
+
+def _clone_repo(task: Task, ref: str, clone_dir: str, log_prefix: str = "") -> Path:
+    """Clone a task's repo at a ref into a temp dir named after the task.
+
+    The checkout lands at ``<clone_dir>/swe-clone-<task-id>/<repo-name>`` so the
+    /swe skill, which derives {repo-name} from the clone path's basename, gets
+    the right name -- and the parent is a stable, transcribable name (the task
+    id) rather than a random mktemp suffix, which agents were mis-copying
+    character by character and burning turns on. The task-id parent is unique
+    per task (ids are unique within a dataset), so serial and concurrent runs do
+    not collide. The ``swe-clone-`` prefix is distinct from the ``swe-benchmark-
+    data`` output dir so a gitignore glob can target clones precisely. A leftover
+    directory from a previously killed run is removed first.
 
     Args:
         task: The task whose repo to clone.
@@ -116,7 +148,11 @@ def _clone_repo(task: Task, ref: str, clone_dir: str, log_prefix: str = "") -> P
         RuntimeError: If the clone command fails or times out.
     """
     name = _repo_name(task.repo)
-    parent = Path(tempfile.mkdtemp(prefix="swe-", dir=clone_dir))
+    parent = Path(clone_dir) / f"swe-clone-{_safe_task_slug(task.id)}"
+    # Clear any leftover clone from a prior killed run so the fresh clone into a
+    # deterministic path does not fail on a non-empty destination.
+    shutil.rmtree(parent, ignore_errors=True)
+    parent.mkdir(parents=True, exist_ok=True)
     dest = parent / name
     prefix = f"{log_prefix} " if log_prefix else ""
     logger.info("  %sCloning %s @ %s into %s", prefix, task.repo, ref, dest)
@@ -198,6 +234,12 @@ def _build_env(config: RunnerConfig) -> dict[str, str]:
     env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] = "1"
     env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(config.max_output_tokens)
     env["CLAUDE_CODE_SUBAGENT_MODEL"] = config.model
+    # Calibrate auto-compaction to the model's true window when known. Claude
+    # Code cannot detect the window of a custom model on a custom base URL, so
+    # without this it never compacts and the request eventually overflows the
+    # endpoint's context limit (a 500 the client then retries forever).
+    if config.auto_compact_window is not None:
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(config.auto_compact_window)
     if config.is_bedrock:
         env["CLAUDE_CODE_USE_BEDROCK"] = "1"
         region = config.resolved_region()
@@ -247,19 +289,30 @@ def _build_settings_arg(config: RunnerConfig) -> str:
         region = config.resolved_region()
         if region:
             env["AWS_REGION"] = region
+        # The settings env block overrides the process env, so mirror the
+        # auto-compaction window here too when it is set.
+        if config.auto_compact_window is not None:
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(config.auto_compact_window)
         return json.dumps({"env": env})
+    endpoint_env = {
+        "CLAUDE_CODE_USE_BEDROCK": "0",
+        "ANTHROPIC_BASE_URL": config.endpoint,
+        "ANTHROPIC_API_KEY": config.api_key,
+        "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(config.max_output_tokens),
+        "CLAUDE_CODE_SUBAGENT_MODEL": config.model,
+    }
+    # The settings env block overrides the process env, so mirror the
+    # auto-compaction window here too when it is set.
+    if config.auto_compact_window is not None:
+        endpoint_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(
+            config.auto_compact_window
+        )
     settings = {
         # Claude Code requires a token source even against a local endpoint that
         # ignores the value; without it the run fails with "Not logged in".
         "apiKeyHelper": f"echo {config.api_key}",
-        "env": {
-            "CLAUDE_CODE_USE_BEDROCK": "0",
-            "ANTHROPIC_BASE_URL": config.endpoint,
-            "ANTHROPIC_API_KEY": config.api_key,
-            "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
-            "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(config.max_output_tokens),
-            "CLAUDE_CODE_SUBAGENT_MODEL": config.model,
-        },
+        "env": endpoint_env,
     }
     return json.dumps(settings)
 
@@ -1299,7 +1352,11 @@ def _dry_run(config: RunnerConfig, dataset: Dataset, tasks: list[Task]) -> None:
     """Print the prompt and command for each task without executing anything."""
     for task in tasks:
         ref = dataset.resolved_ref(task)
-        placeholder = Path(config.clone_dir) / "<tmp>" / _repo_name(task.repo)
+        placeholder = (
+            Path(config.clone_dir)
+            / f"swe-clone-{_safe_task_slug(task.id)}"
+            / _repo_name(task.repo)
+        )
         prompt = _build_prompt(task, placeholder, ref, config.model_slug)
         cmd = _build_claude_cmd(config, prompt, clone_path=placeholder)
         print(f"\n=== {task.id} [{task.complexity}] ref={ref} ===")
@@ -1480,6 +1537,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-turns", type=int, help="Override: cap on the agent loop")
     parser.add_argument(
+        "--context-window",
+        type=int,
+        help="Override: the model's true context window in tokens. Calibrates "
+        "auto-compaction (CLAUDE_CODE_AUTO_COMPACT_WINDOW) for custom models "
+        "whose window Claude Code cannot detect. 0 leaves it unset.",
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         help="Override: how many tasks to run at once (default 1 = serial). "
@@ -1512,6 +1576,7 @@ def main() -> None:
         "aws_region": args.aws_region,
         "dataset": args.dataset,
         "max_turns": args.max_turns,
+        "context_window": args.context_window,
         "concurrency": args.concurrency,
     }
     if args.tasks:
