@@ -85,7 +85,7 @@ Separate from VRAM: the **download** is ~160 GB, and the DLAMI root disk is only
 
 ## Benchmarking
 
-**The SWE benchmark requires a >=200K context window** (agentic coding tasks routinely need 100K-250K input tokens per request), so this model can only be benchmarked on a **g6e.48xlarge (8xL40S) or larger** where a 200K-256K window fits. The `/benchmark` skill enforces this: it reads the served `max_model_len` after boot and refuses to run if it is under 200000. On such a node, serve at a large window (e.g. `MAX_MODEL_LEN=200000`) and run:
+**The SWE benchmark wants a >=200K context window** (agentic coding tasks routinely need 100K-250K input tokens per request), so this model is best benchmarked on a **g6e.48xlarge (8xL40S) or larger** where a 200K-256K window fits. The `/benchmark` skill reads the served `max_model_len` after boot and gates on it: >=200K proceeds, a window somewhat below 200K warns and asks the user to confirm, and a tiny window like this model's ~16K on a 4xL40S is not benchmarkable (every task overflows on turn 1). On a large-VRAM node, serve at a wide window (e.g. `MAX_MODEL_LEN=200000`) and run:
 
 ```bash
 cd benchmarks
