@@ -131,15 +131,15 @@ All cells are task scores (0-100), the mean of the 4 artifact totals per (task x
 | `remove-faiss` | Medium | **75.25** | 59.25 | 49.0 | n/a |
 | `remove-efs-from-terraform-aws-ecs` | Medium | **71.25** | 63.0 | 45.0 | n/a |
 | `ssrf-hardening-outbound-url-validation` | Medium | **72.75** | 55.75 | 0.0 ⁵ | n/a |
-| `migrate-ecs-env-vars-to-secrets-manager` | High | **75.5** | 54.5 | 43.5 | n/a |
+| `migrate-ecs-env-vars-to-secrets-manager` | High | **75.5** | 54.5 | 36.25 | n/a |
 | `replace-keycloak-db-password-with-rds-iam` | High | 0.0 ⁵ | **48.75** | 33.25 | n/a |
-| **Mean (5 tasks)** | | **58.95** | 56.25 | 34.15 | n/a |
+| **Mean (5 tasks)** | | **58.95** | 56.25 | 32.7 | n/a |
 
 **Hardware:** Kimi-K2.7-Code (1.06T-param MoE, ~1 TB weights) ran on **8x H200** (`p5en.48xlarge`) at its full **131,072-token (128K) native context window**; the three Qwen models (3B-active MoE) ran on a single **`g6e.12xlarge`** (4x L40S) at a 200K window. All via vLLM. Note Kimi's 128K window is below the harness's 200K agentic-coding guideline, yet it completed 4 of 5 tasks -- the one failure (`keycloak-rds-iam`) was a turn-cap timeout, not a context overflow.
 
 ⁴ Qwen3-Coder-Next (79.6B, ~160 GB weights) **could not be benchmarked on the `g6e.12xlarge`.** There the weights leave room for only a ~16K context window, but agentic coding tasks need 100K-250K input tokens per request, so every task overflows the window on the first prompt. It needs a larger-VRAM node (e.g. `g6e.48xlarge`) to serve a >=200K window. The `/benchmark` skill enforces a 200K-minimum gate by default as a conservative guideline -- Kimi's 128K run shows a window somewhat below 200K can still work when the tasks fit, but 16K cannot. See [self-hosted/vllm/models/qwen3-coder-next.md](self-hosted/vllm/models/qwen3-coder-next.md).
 
-⁵ **Genuine model failures, scored 0.** Kimi-K2.7-Code on `keycloak-rds-iam` and Qwen3-Coder-30B on `ssrf` both hit the 60-turn cap without writing all four required design artifacts (Kimi produced 2 of 4; Qwen3-Coder-30B spent every turn editing repo source instead of writing design docs and produced 0). The judge records a missing-artifact folder as a 0 with a `MODEL FAILURE` verdict rather than dropping it from the results. Excluding these single failed tasks, Kimi averages 73.69 and Qwen3-Coder-30B averages 42.7 over the tasks they completed.
+⁵ **Genuine model failures, scored 0.** Kimi-K2.7-Code on `keycloak-rds-iam` and Qwen3-Coder-30B on `ssrf` both hit the 60-turn cap without writing all four required design artifacts (Kimi produced 2 of 4; Qwen3-Coder-30B spent every turn editing repo source instead of writing design docs and produced 0). The judge records a missing-artifact folder as a 0 with a `MODEL FAILURE` verdict rather than dropping it from the results. Excluding these single failed tasks, Kimi averages 73.69 and Qwen3-Coder-30B averages 40.88 over the tasks they completed.
 
 ### Per-model leaderboard (self-hosted, so far)
 
@@ -147,7 +147,7 @@ All cells are task scores (0-100), the mean of the 4 artifact totals per (task x
 |-----:|-------|----------------|----------|---------:|-----------------:|
 | 1 | Kimi-K2.7-Code | 1,058.6B (MoE) | 8x H200 | **58.95** | 73.69 (4/5) |
 | 2 | Qwen3.6-35B-A3B | 35.9B (3B) | g6e.12xlarge | **56.25** | 56.25 (5/5) |
-| 3 | Qwen3-Coder-30B-A3B-Instruct | 30.5B (3B) | g6e.12xlarge | **34.15** | 42.7 (4/5) |
+| 3 | Qwen3-Coder-30B-A3B-Instruct | 30.5B (3B) | g6e.12xlarge | **32.7** | 40.88 (4/5) |
 | - | Qwen3-Coder-Next | 79.6B (3B) | (needs bigger node) | not viable on g6e.12xlarge | - |
 
 **Coming soon:** Claude Opus/Sonnet/Haiku (Path 1, Bedrock) and the open-weight Bedrock models via the LiteLLM proxy (Path 2 -- DeepSeek, Mistral, GLM, MiniMax, …).
