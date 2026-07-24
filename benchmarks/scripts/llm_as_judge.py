@@ -11,6 +11,7 @@ shared with the agentic ``codex_judge.py`` backend via ``judge_common.py``.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -24,9 +25,12 @@ from judge_common import (
     EvaluationResult,
     JudgeError,
     atomic_write_json,
+    identify_folder,
+    missing_artifacts,
     optional_file,
     parse_and_validate_result,
     render_judge_prompt,
+    zero_score_result,
 )
 
 logging.basicConfig(
@@ -119,6 +123,38 @@ def evaluate_artifact_folder(
     eval_path = artifact_dir / "eval.json"
     if eval_path.exists() and not overwrite:
         raise JudgeError(f"eval.json exists and overwrite is disabled: {eval_path}")
+
+    # Missing/empty required artifacts are a model failure, not a judging error:
+    # score 0 with an explicit verdict instead of erroring out (parity with the
+    # codex judge).
+    missing = missing_artifacts(artifact_dir)
+    if missing:
+        task_id, candidate_id = identify_folder(artifact_dir)
+        logger.warning(
+            "%s: missing artifact(s) %s -- scoring 0 (model failure)",
+            artifact_dir,
+            ", ".join(missing),
+        )
+        result = zero_score_result(
+            task_id=task_id, candidate_id=candidate_id, missing=missing
+        )
+        result["judge"] = {
+            "model": model,
+            "provider": "bedrock-mantle",
+            "repo_grounded": False,
+            "scored_zero_missing_artifacts": missing,
+            "evaluated_at": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+        if write_outputs:
+            atomic_write_json(eval_path, result)
+            metrics_path = artifact_dir / "metrics.json"
+            if metrics_path.exists():
+                existing = json.loads(metrics_path.read_text(encoding="utf-8"))
+                existing["evaluation"] = result
+                atomic_write_json(metrics_path, existing)
+        return result
 
     prompt, task_id, candidate_id, metrics = render_judge_prompt(
         artifact_dir,
