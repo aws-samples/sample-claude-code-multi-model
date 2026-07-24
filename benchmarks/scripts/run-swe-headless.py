@@ -124,13 +124,15 @@ def _safe_task_slug(task_id: str) -> str:
 def _clone_repo(task: Task, ref: str, clone_dir: str, log_prefix: str = "") -> Path:
     """Clone a task's repo at a ref into a temp dir named after the task.
 
-    The checkout lands at ``<clone_dir>/swe-<task-id>/<repo-name>`` so the /swe
-    skill, which derives {repo-name} from the clone path's basename, gets the
-    right name -- and the parent is a stable, transcribable name (the task id)
-    rather than a random mktemp suffix, which agents were mis-copying character
-    by character and burning turns on. The task-id parent is unique per task
-    (ids are unique within a dataset), so serial and concurrent runs do not
-    collide. A leftover directory from a previously killed run is removed first.
+    The checkout lands at ``<clone_dir>/swe-clone-<task-id>/<repo-name>`` so the
+    /swe skill, which derives {repo-name} from the clone path's basename, gets
+    the right name -- and the parent is a stable, transcribable name (the task
+    id) rather than a random mktemp suffix, which agents were mis-copying
+    character by character and burning turns on. The task-id parent is unique
+    per task (ids are unique within a dataset), so serial and concurrent runs do
+    not collide. The ``swe-clone-`` prefix is distinct from the ``swe-benchmark-
+    data`` output dir so a gitignore glob can target clones precisely. A leftover
+    directory from a previously killed run is removed first.
 
     Args:
         task: The task whose repo to clone.
@@ -146,7 +148,7 @@ def _clone_repo(task: Task, ref: str, clone_dir: str, log_prefix: str = "") -> P
         RuntimeError: If the clone command fails or times out.
     """
     name = _repo_name(task.repo)
-    parent = Path(clone_dir) / f"swe-{_safe_task_slug(task.id)}"
+    parent = Path(clone_dir) / f"swe-clone-{_safe_task_slug(task.id)}"
     # Clear any leftover clone from a prior killed run so the fresh clone into a
     # deterministic path does not fail on a non-empty destination.
     shutil.rmtree(parent, ignore_errors=True)
@@ -1352,7 +1354,7 @@ def _dry_run(config: RunnerConfig, dataset: Dataset, tasks: list[Task]) -> None:
         ref = dataset.resolved_ref(task)
         placeholder = (
             Path(config.clone_dir)
-            / f"swe-{_safe_task_slug(task.id)}"
+            / f"swe-clone-{_safe_task_slug(task.id)}"
             / _repo_name(task.repo)
         )
         prompt = _build_prompt(task, placeholder, ref, config.model_slug)

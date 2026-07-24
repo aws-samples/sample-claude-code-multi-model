@@ -231,10 +231,11 @@ ok "No blocking artifact folders."
 
 ok "Pre-flight complete."
 
-# The harness clones each task's repo into <clone_dir>/swe-<task-id>/ and removes
-# it in its own finally block after each task. Register a trap as a backstop so a
-# killed or crashed run does not leave clones behind: it removes exactly this
-# dataset's task dirs (never a broad swe-* glob, which would hit swe-judge-repos).
+# The harness clones each task's repo into <clone_dir>/swe-clone-<task-id>/ and
+# removes it in its own finally block after each task. Register a trap as a
+# backstop so a killed or crashed run does not leave clones behind: it removes
+# exactly this dataset's task dirs (never a broad glob, which would hit
+# swe-judge-repos or the swe-benchmark-data output dir).
 CLONE_DIRS="$(uv run python -c "import sys; sys.path.insert(0,'scripts')
 from dataset_loader import load_dataset
 from runner_config import load_runner_config
@@ -244,7 +245,7 @@ m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
 cfg=load_runner_config('$CONFIG', {'model':'$MODEL','dataset':'$DATASET'})
 d=load_dataset('$DATASET_PATH')
 for t in d.tasks:
-    print(f'{cfg.clone_dir}/swe-{m._safe_task_slug(t.id)}')" 2>/dev/null || true)"
+    print(f'{cfg.clone_dir}/swe-clone-{m._safe_task_slug(t.id)}')" 2>/dev/null || true)"
 
 _cleanup_clones() {
     [[ -z "$CLONE_DIRS" ]] && return 0

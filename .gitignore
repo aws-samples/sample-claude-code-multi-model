@@ -27,12 +27,14 @@ benchmarks/swe-benchmark-data/
 # stays local so it can never be committed by accident.
 benchmarks/swe-benchmark-data/mcp-gateway-registry/
 **/benchmarks/swe-benchmark-data/mcp-gateway-registry/
-# Per-task target-repo clones. The harness clones into <clone_dir>/swe-<task-id>/
-# (clone_dir defaults to /tmp, outside the repo) and deletes them after each
-# task; this ignore is a backstop for a config that points clone_dir inside the
-# repo, so a leftover clone from a killed run can never be committed.
-swe-*/
-**/swe-*/
+# Per-task target-repo clones. The harness clones into
+# <clone_dir>/swe-clone-<task-id>/ (clone_dir defaults to /tmp, outside the
+# repo) and deletes them after each task; this ignore is a backstop for a config
+# that points clone_dir inside the repo, so a leftover clone from a killed run
+# can never be committed. The swe-clone- prefix is specific so this never
+# matches the swe-benchmark-data output dir.
+swe-clone-*/
+**/swe-clone-*/
 __pycache__/
 *.pyc
 credentials.json
