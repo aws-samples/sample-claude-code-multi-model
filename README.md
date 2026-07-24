@@ -141,6 +141,12 @@ All cells are task scores (0-100), the mean of the 4 artifact totals per (task x
 
 ⁵ **Genuine model failures, scored 0.** Kimi-K2.7-Code on `keycloak-rds-iam` and Qwen3-Coder-30B on `ssrf` both hit the 60-turn cap without writing all four required design artifacts (Kimi produced 2 of 4; Qwen3-Coder-30B spent every turn editing repo source instead of writing design docs and produced 0). The judge records a missing-artifact folder as a 0 with a `MODEL FAILURE` verdict rather than dropping it from the results. Excluding these single failed tasks, Kimi averages 73.69 and Qwen3-Coder-30B averages 40.88 over the tasks they completed.
 
+### Cost vs. quality
+
+![Cost vs. quality scatter: mean estimated cost per task against mean task score, for the self-hosted models, with the cost/quality frontier highlighted](docs/images/cost-quality.png)
+
+Mean estimated cost per task (x, token-based for self-hosted) against mean task score (y), one point per model. All three run on the cost/quality frontier so far. Regenerate from the run artifacts with `uv run scripts/plot_cost_quality.py` (add `--dark` for the dark theme) from `benchmarks/`.
+
 ### Per-model leaderboard (self-hosted, so far)
 
 | Rank | Model | Params (active) | Hardware | Mean (5) | Mean (completed) |

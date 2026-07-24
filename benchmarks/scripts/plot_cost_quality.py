@@ -41,8 +41,11 @@ logger = logging.getLogger(__name__)
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 _BENCHMARKS_DIR = _SCRIPTS_DIR.parent
+_REPO_ROOT = _BENCHMARKS_DIR.parent
 DEFAULT_DATA_DIR = _BENCHMARKS_DIR / "swe-benchmark-data"
-DEFAULT_OUTPUT = _BENCHMARKS_DIR / "swe-benchmark-data" / "cost-quality.png"
+# Default to the tracked docs/images path so the committed chart the README
+# embeds stays in sync when this is re-run. (swe-benchmark-data is gitignored.)
+DEFAULT_OUTPUT = _REPO_ROOT / "docs" / "images" / "cost-quality.png"
 METRICS_FILENAME = "metrics.json"
 EVAL_FILENAME = "eval.json"
 
