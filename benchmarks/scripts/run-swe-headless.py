@@ -198,6 +198,12 @@ def _build_env(config: RunnerConfig) -> dict[str, str]:
     env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] = "1"
     env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(config.max_output_tokens)
     env["CLAUDE_CODE_SUBAGENT_MODEL"] = config.model
+    # Calibrate auto-compaction to the model's true window when known. Claude
+    # Code cannot detect the window of a custom model on a custom base URL, so
+    # without this it never compacts and the request eventually overflows the
+    # endpoint's context limit (a 500 the client then retries forever).
+    if config.auto_compact_window is not None:
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(config.auto_compact_window)
     if config.is_bedrock:
         env["CLAUDE_CODE_USE_BEDROCK"] = "1"
         region = config.resolved_region()
@@ -247,19 +253,30 @@ def _build_settings_arg(config: RunnerConfig) -> str:
         region = config.resolved_region()
         if region:
             env["AWS_REGION"] = region
+        # The settings env block overrides the process env, so mirror the
+        # auto-compaction window here too when it is set.
+        if config.auto_compact_window is not None:
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(config.auto_compact_window)
         return json.dumps({"env": env})
+    endpoint_env = {
+        "CLAUDE_CODE_USE_BEDROCK": "0",
+        "ANTHROPIC_BASE_URL": config.endpoint,
+        "ANTHROPIC_API_KEY": config.api_key,
+        "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(config.max_output_tokens),
+        "CLAUDE_CODE_SUBAGENT_MODEL": config.model,
+    }
+    # The settings env block overrides the process env, so mirror the
+    # auto-compaction window here too when it is set.
+    if config.auto_compact_window is not None:
+        endpoint_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(
+            config.auto_compact_window
+        )
     settings = {
         # Claude Code requires a token source even against a local endpoint that
         # ignores the value; without it the run fails with "Not logged in".
         "apiKeyHelper": f"echo {config.api_key}",
-        "env": {
-            "CLAUDE_CODE_USE_BEDROCK": "0",
-            "ANTHROPIC_BASE_URL": config.endpoint,
-            "ANTHROPIC_API_KEY": config.api_key,
-            "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
-            "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(config.max_output_tokens),
-            "CLAUDE_CODE_SUBAGENT_MODEL": config.model,
-        },
+        "env": endpoint_env,
     }
     return json.dumps(settings)
 
@@ -1480,6 +1497,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-turns", type=int, help="Override: cap on the agent loop")
     parser.add_argument(
+        "--context-window",
+        type=int,
+        help="Override: the model's true context window in tokens. Calibrates "
+        "auto-compaction (CLAUDE_CODE_AUTO_COMPACT_WINDOW) for custom models "
+        "whose window Claude Code cannot detect. 0 leaves it unset.",
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         help="Override: how many tasks to run at once (default 1 = serial). "
@@ -1512,6 +1536,7 @@ def main() -> None:
         "aws_region": args.aws_region,
         "dataset": args.dataset,
         "max_turns": args.max_turns,
+        "context_window": args.context_window,
         "concurrency": args.concurrency,
     }
     if args.tasks:

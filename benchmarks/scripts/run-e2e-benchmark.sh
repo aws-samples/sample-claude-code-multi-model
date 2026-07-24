@@ -183,6 +183,20 @@ case "$PROVIDER" in
         else
             ok "vLLM serving '$MODEL' at $ENDPOINT"
         fi
+        # Read the live server's context window (max_model_len) so we can
+        # calibrate Claude Code's auto-compaction to it. Claude Code cannot
+        # detect a custom model's window; without this the conversation grows
+        # until vLLM rejects the request (500) and the client retries forever.
+        VLLM_CONTEXT_WINDOW="$(curl -s -m 5 "$ENDPOINT/v1/models" 2>/dev/null \
+            | uv run python -c 'import sys,json
+d=json.load(sys.stdin).get("data",[])
+w=next((m.get("max_model_len") for m in d if m.get("max_model_len")), None)
+print(w if w else "")' 2>/dev/null || true)"
+        if [[ -n "$VLLM_CONTEXT_WINDOW" ]]; then
+            ok "vLLM context window (max_model_len): $VLLM_CONTEXT_WINDOW -- auto-compaction will be calibrated to it"
+        else
+            warn "Could not read vLLM max_model_len from /v1/models; falling back to the config's context_window. Long tasks may overflow the window."
+        fi
         # The DuckDB metrics collector is optional but recommended on this path.
         if uv run --project "$VLLM_DIR" python -c 'import sys' >/dev/null 2>&1; then :; fi
         if pgrep -f "collect_metrics" >/dev/null 2>&1; then
@@ -220,10 +234,12 @@ ok "Pre-flight complete."
 # =============================================================================
 step "Step 1 - Run the SWE benchmark"
 # =============================================================================
-BENCH_ARGS=(--config "$CONFIG" --provider "$HARNESS_PROVIDER" --model "$MODEL" --dataset "$DATASET" --stream)
+BENCH_ARGS=(--config "$CONFIG" --provider "$HARNESS_PROVIDER" --model "$MODEL" --dataset "$DATASET" --stream --verbose)
 [[ "$COUNT" != "0" ]] && BENCH_ARGS+=(--count "$COUNT")
 [[ "$HARNESS_PROVIDER" == "endpoint" ]] && BENCH_ARGS+=(--endpoint "$ENDPOINT")
 [[ "$PROVIDER" == "bedrock" ]] && BENCH_ARGS+=(--aws-region "$AWS_REGION_ARG")
+# On the vllm path, calibrate auto-compaction to the live server's window.
+[[ -n "${VLLM_CONTEXT_WINDOW:-}" ]] && BENCH_ARGS+=(--context-window "$VLLM_CONTEXT_WINDOW")
 
 SLUG="$(uv run python -c "import sys; sys.path.insert(0,'scripts'); from runner_config import model_to_slug; print(model_to_slug('$MODEL'))")"
 info "Command:"

@@ -65,6 +65,22 @@
 #                           narrow: read the repo, write the four artifacts.
 #   max_turns         int   Cap on the agent loop (claude --max-turns).
 #   max_output_tokens int   Per-response output-token cap for the model.
+#   context_window    int   The model's true context window, in tokens. Claude
+#                           Code cannot detect the window of a custom model on a
+#                           custom base URL, so without this it never triggers
+#                           auto-compaction and the conversation grows until the
+#                           endpoint rejects the request (500 "maximum context
+#                           length is N tokens"), which the client then retries
+#                           forever. Set this to the served window (for vLLM, the
+#                           MAX_MODEL_LEN you booted with) to calibrate
+#                           auto-compaction (CLAUDE_CODE_AUTO_COMPACT_WINDOW).
+#                           0 (default) leaves it unset -- correct for known
+#                           Claude models / Bedrock, whose window is built in.
+#                           The orchestrator (run-e2e-benchmark.sh) passes the
+#                           live vLLM window automatically on the vllm path.
+#   auto_compact_fraction float  Fraction of context_window at which to compact
+#                           (default 0.9), leaving headroom above the output
+#                           reserve. Only applies when context_window > 0.
 #   timeout_seconds   int   Wall-clock timeout for a single task's claude -p run.
 #   settings_file     str   Optional claude --settings JSON (e.g. the vLLM
 #                           config that pins ANTHROPIC_BASE_URL). Optional.
@@ -133,6 +149,14 @@ allowed_tools:
   - Task
 max_turns: 60
 max_output_tokens: 16000
+
+# Model context window, in tokens, used to calibrate Claude Code's
+# auto-compaction for custom models it cannot introspect. 0 = leave unset (right
+# for known Claude models / Bedrock). On the vllm path the orchestrator passes
+# the live server's MAX_MODEL_LEN via --context-window, which overrides this.
+context_window: 0
+auto_compact_fraction: 0.9
+
 timeout_seconds: 1800
 
 # Point claude -p at the local vLLM server's Claude Code settings. Relative to

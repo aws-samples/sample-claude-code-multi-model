@@ -52,6 +52,20 @@ VALID_PERMISSION_MODES = {"default", "acceptEdits", "plan"}
 DEFAULT_MAX_TURNS = 60
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
 DEFAULT_TIMEOUT_SECONDS = 1800
+# The model's true context window, in tokens. Claude Code cannot learn the
+# window of a custom model served over a custom base URL, so it never triggers
+# auto-compaction and the conversation grows until the endpoint rejects the
+# request (HTTP 500 "maximum context length is N tokens"), which the client
+# then retries forever. Setting CLAUDE_CODE_AUTO_COMPACT_WINDOW to the true
+# window lets auto-compaction fire before the request overflows. 0 means "leave
+# unset" -- for a known Claude model or Bedrock, Claude Code already knows the
+# window, so no override is needed.
+DEFAULT_CONTEXT_WINDOW = 0
+# Fraction of the context window at which to run auto-compaction. Kept below 1.0
+# so there is headroom for the output-token reserve (max_output_tokens) and
+# per-request overhead: at 0.9 of a 262144 window the compact target is 235929,
+# leaving ~26k tokens on top of the 16k output reserve.
+DEFAULT_AUTO_COMPACT_FRACTION = 0.9
 
 # Where claude -p sends requests. "endpoint" routes through an OpenAI/Anthropic-
 # compatible base URL (a local vLLM server, a gateway, the Anthropic API);
@@ -164,6 +178,18 @@ class RunnerConfig(BaseModel):
     max_turns: int = Field(default=DEFAULT_MAX_TURNS, ge=1)
     max_output_tokens: int = Field(default=DEFAULT_MAX_OUTPUT_TOKENS, ge=1)
     timeout_seconds: int = Field(default=DEFAULT_TIMEOUT_SECONDS, ge=1)
+    context_window: int = Field(
+        default=DEFAULT_CONTEXT_WINDOW,
+        ge=0,
+        description="Model's true context window in tokens; calibrates "
+        "auto-compaction for custom models. 0 leaves it unset.",
+    )
+    auto_compact_fraction: float = Field(
+        default=DEFAULT_AUTO_COMPACT_FRACTION,
+        gt=0.0,
+        le=1.0,
+        description="Fraction of context_window at which auto-compaction fires.",
+    )
     settings_file: str | None = Field(
         default=None,
         description="Optional claude --settings JSON file (e.g. the vLLM config).",
@@ -173,6 +199,23 @@ class RunnerConfig(BaseModel):
     def is_bedrock(self) -> bool:
         """True when claude -p should route natively to Amazon Bedrock."""
         return self.provider == PROVIDER_BEDROCK
+
+    @property
+    def auto_compact_window(self) -> int | None:
+        """Token budget for CLAUDE_CODE_AUTO_COMPACT_WINDOW, or None if unset.
+
+        Computed as ``floor(context_window * auto_compact_fraction)`` so
+        auto-compaction fires with headroom below the model's true window. When
+        ``context_window`` is 0 (the default) this returns None and the harness
+        leaves the env var unset -- Claude Code already knows the window for a
+        known Claude model or Bedrock, so no override is needed there.
+
+        Returns:
+            The compact-trigger token budget, or None when no window is set.
+        """
+        if self.context_window <= 0:
+            return None
+        return int(self.context_window * self.auto_compact_fraction)
 
     @property
     def model_slug(self) -> str:
@@ -336,6 +379,15 @@ def _summarize(config: RunnerConfig) -> None:
     logger.info("  concurrency: %s", config.concurrency)
     logger.info("  permission_mode: %s", config.permission_mode)
     logger.info("  max_turns: %s", config.max_turns)
+    if config.auto_compact_window is not None:
+        logger.info(
+            "  context_window: %s (auto-compact at %s, fraction %s)",
+            config.context_window,
+            config.auto_compact_window,
+            config.auto_compact_fraction,
+        )
+    else:
+        logger.info("  context_window: (unset -- relying on Claude Code's default)")
     logger.info("  allowed_tools: %s", ", ".join(config.allowed_tools))
 
 
