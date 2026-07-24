@@ -62,6 +62,29 @@ class RepoNameTest(unittest.TestCase):
         self.assertEqual(harness._repo_name("https://github.com/foo/bar.git/"), "bar")
 
 
+class SafeTaskSlugTest(unittest.TestCase):
+    def test_kebab_case_id_unchanged(self) -> None:
+        # Well-formed dataset ids pass through untouched -- this is the common
+        # case and what makes the clone path transcribable by the agent.
+        self.assertEqual(harness._safe_task_slug("remove-faiss"), "remove-faiss")
+
+    def test_dots_and_underscores_preserved(self) -> None:
+        self.assertEqual(harness._safe_task_slug("Foo_Bar.1"), "Foo_Bar.1")
+
+    def test_slashes_replaced(self) -> None:
+        self.assertEqual(harness._safe_task_slug("a/b"), "a-b")
+
+    def test_path_traversal_neutralized(self) -> None:
+        # Leading dots/dashes are stripped so a crafted id cannot escape the
+        # clone parent (e.g. "../etc" must not become a traversal).
+        self.assertEqual(harness._safe_task_slug("../etc"), "etc")
+        self.assertEqual(harness._safe_task_slug(".."), "task")
+
+    def test_empty_id_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            harness._safe_task_slug("")
+
+
 class BuildPromptTest(unittest.TestCase):
     def test_prompt_has_all_swe_keys(self) -> None:
         prompt = harness._build_prompt(
