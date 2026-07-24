@@ -8,8 +8,10 @@ those where no other model is both cheaper and higher-scoring -- are connected b
 a highlighted frontier line, so the cost/quality trade-off is read at a glance.
 
 Each model's numbers come straight from its per-task ``metrics.json``
-(``total_cost_usd``) and ``eval.json`` (``task_score``); a task that produced no
-score (a model failure) counts as 0, matching the leaderboard's 5-task mean.
+(``total_cost_usd``) and ``eval.json`` (``task_score``). A task that scored 0 (a
+model failure -- missing artifacts) is an unresolved anomaly, not a quality
+reading, so it is EXCLUDED from both the score and cost means and noted on the
+chart, pending investigation.
 
 Note: for self-hosted vLLM runs ``total_cost_usd`` is a token-based *estimate*
 (the served model has no per-token bill), so the x-axis is labelled as estimated.
@@ -75,13 +77,21 @@ _THEME = {
 
 @dataclass
 class ModelPoint:
-    """One model's aggregate for the scatter."""
+    """One model's aggregate for the scatter.
+
+    Means are over the tasks the model actually completed with a non-zero
+    score. Zero-score tasks (a genuine model failure -- missing artifacts) are
+    an unresolved anomaly, not a quality measurement, so they are excluded from
+    both the score and cost means and surfaced separately (``excluded``) pending
+    investigation.
+    """
 
     model: str
     mean_cost: float
     mean_score: float
     n_tasks: int
     n_scored: int
+    excluded: list[str]
 
 
 def _read_json(path: Path) -> dict | None:
@@ -104,38 +114,45 @@ def _task_score(eval_data: dict | None) -> float | None:
 def _aggregate_model(model_repo_dir: Path) -> ModelPoint | None:
     """Aggregate one model's per-task cost and score under a repo directory.
 
-    A task folder must have ``metrics.json`` (for cost) to count. A missing or
-    unscored ``eval.json`` counts as a 0 score -- a model failure still consumed
-    cost and still counts against the mean, matching the README leaderboard.
+    A task folder must have ``metrics.json`` (for cost) to count. Tasks that
+    scored 0 -- a genuine model failure (missing/empty artifacts) rather than a
+    quality measurement -- are **excluded** from both the score and cost means
+    and returned in ``excluded`` for a visible note, pending investigation.
 
     Args:
         model_repo_dir: ``<data-dir>/<model>/<repo>`` directory.
 
     Returns:
-        The model's aggregate, or None if it has no scorable task folders.
+        The model's aggregate, or None if it has no task folders at all.
     """
     model = model_repo_dir.parent.name
     costs: list[float] = []
     scores: list[float] = []
-    n_scored = 0
+    excluded: list[str] = []
+    n_tasks = 0
     for task_dir in sorted(p for p in model_repo_dir.iterdir() if p.is_dir()):
         metrics = _read_json(task_dir / METRICS_FILENAME)
         if metrics is None:
             continue
+        n_tasks += 1
+        score = _task_score(_read_json(task_dir / EVAL_FILENAME))
+        # A 0 (or unscored) task is a model failure, not a quality signal:
+        # exclude it from both means and note it separately.
+        if not score:
+            excluded.append(task_dir.name)
+            continue
         cost = metrics.get("total_cost_usd")
         costs.append(float(cost) if isinstance(cost, (int, float)) else 0.0)
-        score = _task_score(_read_json(task_dir / EVAL_FILENAME))
-        if score is not None:
-            n_scored += 1
-        scores.append(score if score is not None else 0.0)
-    if not scores:
+        scores.append(score)
+    if n_tasks == 0:
         return None
     return ModelPoint(
         model=model,
-        mean_cost=sum(costs) / len(costs),
-        mean_score=sum(scores) / len(scores),
-        n_tasks=len(scores),
-        n_scored=n_scored,
+        mean_cost=sum(costs) / len(costs) if costs else 0.0,
+        mean_score=sum(scores) / len(scores) if scores else 0.0,
+        n_tasks=n_tasks,
+        n_scored=len(scores),
+        excluded=excluded,
     )
 
 
@@ -210,9 +227,9 @@ def _pareto_frontier(points: list[ModelPoint]) -> list[ModelPoint]:
 
 
 def _label(point: ModelPoint) -> str:
-    """Build a point label, flagging partial runs (a model failure)."""
-    if point.n_scored < point.n_tasks:
-        return f"{point.model} ({point.n_scored}/{point.n_tasks} scored)"
+    """Build a point label; mark models whose mean excludes a failed task."""
+    if point.excluded:
+        return f"{point.model}*"
     return point.model
 
 
@@ -313,6 +330,26 @@ def _plot(
         legend = ax.legend(loc="lower right", frameon=False, fontsize=9)
         for text in legend.get_texts():
             text.set_color(theme["muted"])
+
+    # Note any excluded failed tasks so the chart is self-explaining: a 0-score
+    # (missing-artifact) task is a model failure, not a quality reading, so it is
+    # left out of the means, pending investigation.
+    excl_notes = [f"{p.model}: {', '.join(p.excluded)}" for p in points if p.excluded]
+    if excl_notes:
+        note = (
+            "* Mean excludes a failed task (0 score / missing artifacts), pending "
+            "investigation -- " + "; ".join(excl_notes)
+        )
+        fig.text(
+            0.5,
+            -0.02,
+            note,
+            ha="center",
+            va="top",
+            fontsize=8,
+            color=theme["muted"],
+            wrap=True,
+        )
 
     fig.tight_layout()
     output.parent.mkdir(parents=True, exist_ok=True)
