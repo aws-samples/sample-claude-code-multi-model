@@ -251,6 +251,11 @@ _cleanup_clones() {
     while IFS= read -r dir; do
         [[ -n "$dir" && -d "$dir" ]] && rm -rf -- "$dir"
     done <<< "$CLONE_DIRS"
+    # Always succeed: this is a best-effort backstop on EXIT, and its return
+    # value becomes the script's exit code. The harness already removes each
+    # clone after its task, so the -d test above is normally false (nothing to
+    # remove) -- without this, that falsy test would report a spurious failure.
+    return 0
 }
 trap _cleanup_clones EXIT
 
