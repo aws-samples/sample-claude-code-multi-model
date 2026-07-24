@@ -97,7 +97,7 @@ A dataset is a single YAML file: a metadata header plus a list of tasks, each po
 
 ## Results: a worked example
 
-To show what the harness produces, we ran it against [agentic-community/mcp-gateway-registry](https://github.com/agentic-community/mcp-gateway-registry) at tag `1.24.4` -- **5 tasks x 6 models = 30 artifact bundles**, each scored by the judge. The published numbers are below. (The `mcp-gateway-registry` dataset ships in [benchmarks/dataset/](benchmarks/dataset/mcp-gateway-registry.yaml) so you can reproduce the run; the generated artifacts themselves are not committed, so a customer's own runs never risk landing in version control. The only committed worked example under [benchmarks/swe-benchmark-data/](benchmarks/swe-benchmark-data/) is the trivial `Hello-World` sanity run.)
+To show what the harness produces, we ran it against [agentic-community/mcp-gateway-registry](https://github.com/agentic-community/mcp-gateway-registry) at tag `1.24.4` -- **5 tasks**, each scored by the judge. The numbers below are only for models **we have actually run end to end so far**: three open-weight Qwen models **self-hosted via vLLM on a single `g6e.12xlarge` (4x L40S)**. The other hosting paths (Anthropic on Bedrock, open-weight on Bedrock via the LiteLLM proxy) are **coming soon** -- we publish only what we have measured here. (The `mcp-gateway-registry` dataset ships in [benchmarks/dataset/](benchmarks/dataset/mcp-gateway-registry.yaml) so you can reproduce the run; the generated artifacts themselves are not committed, so a customer's own runs never risk landing in version control. The only committed worked example under [benchmarks/swe-benchmark-data/](benchmarks/swe-benchmark-data/) is the trivial `Hello-World` sanity run.)
 
 | # | Problem | Difficulty | Source |
 |---|---------|-----------|--------|
@@ -107,7 +107,7 @@ To show what the harness produces, we ran it against [agentic-community/mcp-gate
 | 4 | `migrate-ecs-env-vars-to-secrets-manager` | High | Upstream [#1134](https://github.com/agentic-community/mcp-gateway-registry/issues/1134) |
 | 5 | `replace-keycloak-db-password-with-rds-iam` | High | Upstream [#1303](https://github.com/agentic-community/mcp-gateway-registry/issues/1303) |
 
-**Models benchmarked:** Claude Opus 4.8 (Path 1), Kimi K2 Thinking / K2.5, Mistral Devstral 2 123B, MiniMax M2.5, Qwen Coder Next (Path 2, Bedrock via the proxy), and Qwen 3.6 35B (Path 3, self-hosted vLLM on g6e.12xlarge).
+**Models benchmarked so far (all Path 3, self-hosted on vLLM, `g6e.12xlarge` / 4x L40S):** Qwen3.6-35B-A3B, Qwen3-Coder-30B-A3B-Instruct, and Qwen3-Coder-Next. **Coming soon:** Path 1 (Anthropic family on Bedrock -- Claude Opus/Sonnet/Haiku) and Path 2 (open-weight on Bedrock via the LiteLLM proxy -- Kimi, DeepSeek, Mistral, GLM, MiniMax, …).
 
 ### Scoring rubric (LLM-as-judge)
 
@@ -122,40 +122,41 @@ Each of the 4 artifacts is scored 0-100 by an independent judge session. Within 
 
 **Artifact total = sum of 4 criteria (0-100). Task score = mean of the 4 artifact totals (also 0-100).** The judge is calibrated so a median artifact scores around 60-70, not 85; 90+ is reserved for genuinely excellent work; hallucinated files or functions lose at least 10 points off Correctness. Per-cell JSON with criterion breakdowns and judge notes lives at `{model}/{repo}/{task}/eval.json`. The judge itself is documented in the [harness reference](benchmarks/docs/harness-reference.md#scoring-the-artifacts-the-judge).
 
-### Results -- 5 x 6 matrix
+### Results -- 5 tasks x 3 self-hosted models
 
-All cells are percentages (0-100%), averaged across the 4 artifacts per (task x model). Bold = top score in row.
+All cells are task scores (0-100), the mean of the 4 artifact totals per (task x model). All three models were **self-hosted via vLLM on a single `g6e.12xlarge` (4x L40S)** and scored by the same judge (`codex exec`, `gpt-5.6-sol`, high reasoning effort). Bold = top score in row. Other hosting paths are **coming soon**.
 
-| Task | Opus 4.8 | Kimi¹ | Devstral 123B | MiniMax M2.5 | Qwen Coder Next | Qwen 3.6 35B² | Task avg |
-|------|----------:|-------:|--------------:|-------------:|----------------:|---------------:|---------:|
-| `remove-faiss` | **90.8%** | 87.8% ᵀ | 77.8% | 73.5% | 80.8% | 80.2% | 81.8% |
-| `remove-efs-from-terraform-aws-ecs` | **90.8%** | 83.5% ᵀ | 83.8% | 76.0% | 80.2% | 75.2% | 81.6% |
-| `ssrf-hardening-outbound-url-validation` | **90.0%** | 66.2% ᵀ | 70.5% | 69.2% | 85.8% | 71.2% | 75.5% |
-| `migrate-ecs-env-vars-to-secrets-manager` | **90.5%** | 87.0% ⁵ | 75.0% | 78.5% | 80.8% | 63.0% | 79.1% |
-| `replace-keycloak-db-password-with-rds-iam` | **87.8%** | 86.2% ⁵ | 72.8% | 76.2% | 71.5% | 58.8% | 75.5% |
+| Task | Difficulty | Qwen3.6-35B | Qwen3-Coder-30B | Qwen3-Coder-Next³ |
+|------|-----------|------------:|----------------:|:-----------------:|
+| `remove-faiss` | Medium | **59.25** | 49.0 | n/a |
+| `remove-efs-from-terraform-aws-ecs` | Medium | **63.0** | 45.0 | n/a |
+| `ssrf-hardening-outbound-url-validation` | Medium | **55.75** | 0.0 ⁴ | n/a |
+| `migrate-ecs-env-vars-to-secrets-manager` | High | **54.5** | 43.5 | n/a |
+| `replace-keycloak-db-password-with-rds-iam` | High | **48.75** | 33.25 | n/a |
+| **Mean** | | **56.25** | **34.15** | **n/a** |
 
-¹ Kimi variant: ᵀ = K2 Thinking (tasks 1-3), ⁵ = K2.5 (tasks 4-5; substituted mid-benchmark after K2 Thinking's Bedrock backend started hanging requests).
-² Qwen 3.6 35B ran self-hosted via vLLM on g6e.12xlarge (4x L40S), not through the Bedrock proxy.
+³ Qwen3-Coder-Next (79.6B, ~160 GB weights) **could not be benchmarked on this node.** On a `g6e.12xlarge` the weights leave room for only a ~16K context window, but agentic coding tasks need 100K-250K input tokens per request, so every task overflows the window on the first prompt. It needs a larger-VRAM node (e.g. `g6e.48xlarge`) to serve a >=200K window. The `/benchmark` skill now enforces a 200K-minimum gate and refuses to run below it. See [self-hosted/vllm/models/qwen3-coder-next.md](self-hosted/vllm/models/qwen3-coder-next.md).
 
-### Per-model leaderboard
+⁴ **Genuine model failure, scored 0.** Qwen3-Coder-30B misread this design task as an implementation task -- on both attempts it spent all 60 turns editing repo source files and never wrote any of the four required design artifacts. The judge records a missing-artifact folder as a 0 with a `MODEL FAILURE` verdict rather than dropping it. Excluding this task, Qwen3-Coder-30B averages 42.7.
 
-| Rank | Model | Avg score | # tasks |
-|-----:|-------|----------:|--------:|
-| 1 | Claude Opus 4.8 | **89.95%** | 5 |
-| 2 | Kimi (combined K2 Thinking + K2.5) | **82.15%** | 5 |
-| 3 | Qwen Coder Next | 79.80% | 5 |
-| 4 | Mistral Devstral 2 123B | 75.95% | 5 |
-| 5 | MiniMax M2.5 | 74.70% | 5 |
-| 6 | Qwen 3.6 35B (self-hosted) | 69.70% | 5 |
+### Per-model leaderboard (self-hosted, so far)
 
-### What the data says
+| Rank | Model | Params (active) | Avg score | # tasks |
+|-----:|-------|----------------|----------:|--------:|
+| 1 | Qwen3.6-35B-A3B | 35.9B (3B) | **56.25** | 5 |
+| 2 | Qwen3-Coder-30B-A3B-Instruct | 30.5B (3B) | **34.15** | 5 |
+| - | Qwen3-Coder-Next | 79.6B (3B) | not viable on this node | 0 |
 
-- **Opus 4.8 wins every row** by 3-24 points. The per-cell delta to the second-place model is small relative to the 10-25x per-token cost ratio.
-- **Kimi is a clear #2**, with a known dip on SSRF where K2 Thinking under-enumerated edge cases (66.2% vs Opus's 90.0%).
-- **Mid/budget tier is not a clean ordering.** Qwen has the highest mid-tier average but only because of one outlier -- strip SSRF out and Qwen, Devstral, and MiniMax are within ~2 points of each other. Devstral wins `remove-efs`, MiniMax wins `keycloak-iam`.
-- **SSRF was the genuine hardest task** (75.5% avg, 23.8-point spread), not the labelled "High" tasks. Security work rewards edge-case enumeration (private IPs, DNS rebinding, redirect handling) which the mid-tier under-delivered on.
-- **Qwen 3.6 35B (self-hosted) is usable on bounded cleanup, drops on AWS-heavy tasks.** Scored 80.2% on FAISS removal and 75.2% on EFS removal but fell to 63.0% and 58.8% on the two High-difficulty AWS infrastructure tasks -- the smaller parameter count shows up when the design requires multi-service Terraform orchestration.
-- **~20x cost spread translated to a ~21-point quality spread.** At the top of the field, the budget models are genuinely good enough for routine refactors and code-heavy work; frontier reasoning earns its premium on AWS-specific infrastructure design.
+**Coming soon:** Claude Opus/Sonnet/Haiku (Path 1, Bedrock) and the open-weight Bedrock models via the LiteLLM proxy (Path 2 -- Kimi, DeepSeek, Mistral, GLM, MiniMax, …).
+
+### What the data says (so far)
+
+These are early numbers from three self-hosted Qwen models on one GPU node; treat them as a starting point, not a final ranking. Cross-path comparisons wait until the Bedrock paths are run.
+
+- **Qwen3.6-35B clearly leads the two that ran**, winning every task and averaging 56.25 vs 34.15 for Qwen3-Coder-30B. On this judge's calibration (median artifact ~60-70) that puts the 3.6 model at roughly median design quality and the coder-30B below it.
+- **The judge is strict, and these are open-weight models on design (not coding) tasks.** Scores in the 45-63 range reflect artifacts that are serviceable but light on the specificity and risk-analysis the rubric rewards; this is expected for smaller models asked to produce design documentation rather than code.
+- **Task type matters more than the difficulty label.** Both models did best on the bounded `remove-*` cleanups and worst on the multi-service AWS infrastructure tasks (`keycloak-rds-iam` was the low for both), where the design requires coordinating Terraform, IAM, and service wiring.
+- **MoE economics are the reason to self-host these.** All three are 3B-active MoE models, so per-token compute (and cost) tracks the 3B active count, not the total -- the regime where a fixed-cost GPU node can beat per-token API pricing under load.
 
 > **The example repo is the example, not the contract.** `/swe` works against any GitHub URL -- clone the target you actually care about, write the task description, and run.
 
